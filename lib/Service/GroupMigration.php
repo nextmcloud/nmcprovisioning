@@ -2,6 +2,7 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Service;
 
+use OC\User\Manager;
 use OCP\DB\Exception;
 use OCP\IDBConnection;
 use OCP\IGroupManager;
@@ -28,16 +29,19 @@ class GroupMigration
 
     private GroupHelper $groupHelper;
 
+    private Manager $userManager;
+
     /**
      * @param \OCP\IDBConnection $db
      * @param \OCP\IGroupManager $groupManager
      */
-    public function __construct(IDBConnection $db, IGroupManager $groupManager)
+    public function __construct(IDBConnection $db, IGroupManager $groupManager, Manager $userManager)
     {
         $this->groupHelper = new GroupHelper();
         $this->groupMapping = $this->groupHelper->getGroupMapping();
         $this->db = $db;
         $this->groupManager = $groupManager;
+        $this->userManager = $userManager;
         $this->richDocuments = new RichDocuments($db);
     }
 
@@ -56,13 +60,23 @@ class GroupMigration
         return $groups;
     }
 
-    public function migrateGroups(int $limit = 1000, int $offset = 0): void
+    public function migrateGroups(int $limit = 1000, int $offset = 0, bool $fullAuto = false): void
     {
-        try {
-            foreach ($this->getGroups() as $group) {
-                $this->migrateGroup($group['gid'], $limit, $offset);
+        $query = $this->db->getQueryBuilder();
+        $query->select($query->func()->count('userid'))
+            ->from('preferences')
+            ->where($query->expr()->eq('appid', $query->createNamedParameter('files')));
+        $users = $query->execute()->fetchAll()[0]["COUNT(`userid`)"];
+        var_dump("Migrating $users users");
+
+        for ($i = 0; $i < $users; $i += $limit) {
+            var_dump("Migrating users $i to " . ($i + $limit));
+            try {
+                foreach ($this->getGroups() as $group) {
+                    $this->migrateGroup($group['gid'], $limit, $i);
+                }
+            } catch (Exception $e) {
             }
-        } catch (Exception $e) {
         }
     }
 
@@ -91,20 +105,29 @@ class GroupMigration
         if (!$newGroup) {
             $this->createNewGroup($newGroupName);
         }
+        if (is_null($this->groupMapping[$newGroupName])) {
+            var_dump("Group $newGroupName not found in mapping");
+            return;
+        }
+        var_dump("Migrate group $newGroupName");
         $users = $this->searchUserByRangeQuota($this->groupMapping[$newGroupName]['old_quota'], $this->groupMapping[$newGroupName]['search_range'], $limit, $offset);
         foreach ($users as $user) {
-            $newGroup->addUser($user);
+            //IUser
+            $iUser = $this->userManager->get($user['userid']);
+            $newGroup->addUser($iUser);
         }
     }
 
-    public function searchUserByRangeQuota(string $quota, int $range = 1, int $limit = 1000, int $offset = 0): array
+    public function searchUserByRangeQuota(int $quota, int $range = 1, int $limit = 1000, int $offset = 0): array
     {
         $query = $this->db->getQueryBuilder();
         $query->select('userid')
             ->from('preferences')
             ->where($query->expr()->eq('appid', $query->createNamedParameter('files')))
             ->andWhere($query->expr()->eq('configkey', $query->createNamedParameter('quota')))
-            ->andWhere("CAST(configvalue AS SIGNED) BETWEEN $quota - $range AND $quota + $range limit $limit offset $offset");
+            ->andWhere("CAST(configvalue AS SIGNED) BETWEEN $quota - $range AND $quota + $range")
+            ->setMaxResults($limit)
+            ->setFirstResult($offset);
         //->andWhere("CAST(configvalue AS SIGNED) BETWEEN $quota - $range AND $quota + $range");
         $result = $query->execute();
         $users = $result->fetchAll();

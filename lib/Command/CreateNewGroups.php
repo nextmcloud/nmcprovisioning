@@ -5,6 +5,7 @@ namespace OCA\NextMagentaCloudProvisioning\Command;
 use OCA\NextMagentaCloudProvisioning\Service\GroupMigration;
 use OCP\IDBConnection;
 use OCP\IGroupManager;
+use OCP\IUserManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -19,11 +20,11 @@ class CreateNewGroups extends Command
     private IDBConnection $db;
     private GroupMigration $groupMigration;
 
-    public function __construct(IDBConnection $db, IGroupManager $groupManager)
+    public function __construct(IDBConnection $db, IGroupManager $groupManager, IUserManager $userManager)
     {
         parent::__construct();
         $this->db = $db;
-        $this->groupMigration = new GroupMigration($db, $groupManager);
+        $this->groupMigration = new GroupMigration($db, $groupManager, $userManager);
     }
 
     /**
