@@ -42,23 +42,15 @@ class TariffRules
      */
     public function deriveDisplayname(object $claims)
     {
-        if(property_exists($claims, 'urn:telekom.com:zusa') && property_exists($claims, 'urn:telekom.com:name')){
-            // try to get zusa and name from claims only deliverd from slup when it is not empty, compute the displayname from our own
-            return $claims->{'urn:telekom.com:zusa'}.' '.$claims->{'urn:telekom.com:name'};
-        } else if (property_exists($claims, 'urn:telekom.com:mainEmail')) {
-            // try to get mainmail from claims only deliverd from sam when it is not empty
-            return strstr($claims->{'urn:telekom.com:mainEmail'}, '@', true);
-        } else if ( property_exists($claims, 'urn:telekom.com:extmail')) {
-            // try to get extmail from claims only deliverd from sam when it is not empty
-            return strstr($claims->{'urn:telekom.com:extmail'}, '@', true);
-        } else if ( property_exists($claims, 'urn:telekom.com:extMail') ) {
-            // try to get extMail from claims only deliverd from sam when it is not empty
-            return strstr($claims->{'urn:telekom.com:extMail'}, '@', true);
-        } else if ( property_exists($claims, 'urn:telekom.com:displayName')) {
-            // try to get displayname from claims only deliverd from sam when it is not empty
-            return $claims->{'urn:telekom.com:displayName'};
+        // TODO: temporary solution
+        if (property_exists($claims, 'urn:telekom.com:mainEmail')) {
+            $rawDisplayName = $claims->{'urn:telekom.com:mainEmail'};
         } else {
-            return null;
+            $rawDisplayName = $claims->{'urn:telekom.com:extMail'};
+        }
+
+        if ($rawDisplayName != null) {
+            return strstr($rawDisplayName, '@', true);
         }
     }
 
