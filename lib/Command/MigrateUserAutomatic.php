@@ -34,7 +34,9 @@ class MigrateUserAutomatic extends Command
     {
         $this
             ->setName('app:migrate_provisioning_groups')
-            ->setDescription('Migration of provisioning groups');
+            ->setDescription('Migration of provisioning groups')
+            ->addArgument('limit', null, 'Limit of groups to migrate')
+            ->addArgument('offset', null, 'Offset of groups to migrate');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)

@@ -2,23 +2,8 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Service;
 
-use OCP\IConfig;
-
 class GroupHelper
 {
-
-    /**
-     * @var \OCP\IConfig
-     */
-    private IConfig $config;
-
-    /**
-     * @param \OCP\IConfig $config
-     */
-    public function __construct(IConfig $config)
-    {
-        $this->config = $config;
-    }
 
     /**
      * @var array $groupMapping
