@@ -69,8 +69,8 @@ class GroupMigration
         $users = $query->execute()->fetchAll()[0]["COUNT(`userid`)"];
         var_dump("Migrating $users users");
 
-        for ($i = 0; $i < $users; $i += $limit) {
-            var_dump("Migrating users $i to " . ($i + $limit));
+        for ($i = $offset; $i < $users; $i += $limit) {
+            var_dump("Migrating users " . $i . " to " . ($i + $limit));
             try {
                 foreach ($this->getGroups() as $group) {
                     $this->migrateGroup($group['gid'], $limit, $i);
@@ -110,7 +110,12 @@ class GroupMigration
             return;
         }
         var_dump("Migrate group $newGroupName");
-        $users = $this->searchUserByRangeQuota($this->groupMapping[$newGroupName]['old_quota'], $this->groupMapping[$newGroupName]['search_range'], $limit, $offset);
+        $users = $this->searchUserByRangeQuota(intval($this->groupMapping[$newGroupName]['old_quota']), $this->groupMapping[$newGroupName]['search_range'], $limit, $offset);
+
+        if ($this->groupMapping[$newGroupName]['old_quota_alias'] != null) {
+            $users = array_merge($users, $this->searchUserByRangeQuota($this->groupMapping[$newGroupName]['old_quota_alias'], 0.2, $limit, $offset));
+        }
+
         foreach ($users as $user) {
             //IUser
             $iUser = $this->userManager->get($user['userid']);
@@ -118,16 +123,27 @@ class GroupMigration
         }
     }
 
-    public function searchUserByRangeQuota(int $quota, int $range = 1, int $limit = 1000, int $offset = 0): array
+    public function searchUserByRangeQuota(int|string $quota, int|float $range = 1, int $limit = 1000, int $offset = 0): array
     {
         $query = $this->db->getQueryBuilder();
         $query->select('userid')
             ->from('preferences')
             ->where($query->expr()->eq('appid', $query->createNamedParameter('files')))
-            ->andWhere($query->expr()->eq('configkey', $query->createNamedParameter('quota')))
-            ->andWhere("CAST(configvalue AS SIGNED) BETWEEN $quota - $range AND $quota + $range")
-            ->setMaxResults($limit)
-            ->setFirstResult($offset);
+            ->andWhere($query->expr()->eq('configkey', $query->createNamedParameter('quota')));
+
+        if (is_int($quota)) {
+            $query->andWhere("CAST(configvalue AS SIGNED) BETWEEN $quota - $range AND $quota + $range");
+        } else {
+            $split = explode(" ", $quota);
+            $range = range(intval($split[0]) - $range, intval($split[0]) + $range, 0.1);
+            $query->andWhere("configvalue IN ('" . implode(" " . $split[1] . "','", $range) . " " . $split[1] . "')");
+        }
+
+        //Set limit and offset
+        $query->setMaxResults($limit);
+        $query->setFirstResult($offset);
+
+        var_dump($query->getSQL());
         //->andWhere("CAST(configvalue AS SIGNED) BETWEEN $quota - $range AND $quota + $range");
         $result = $query->execute();
         $users = $result->fetchAll();

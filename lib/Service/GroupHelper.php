@@ -59,6 +59,7 @@ class GroupHelper
             'space_limit' => '1 TB',
             'old_group' => 'XL1',
             'old_quota' => '1024',
+            'old_quota_alias' => '1 TB',
             'search_range' => '1',
         ],
         'XXL5' => [
@@ -66,6 +67,7 @@ class GroupHelper
             'space_limit' => '5 TB',
             'old_group' => 'XXL5',
             'old_quota' => '5120',
+            'old_quota_alias' => '5 TB',
             'search_range' => '1',
         ],
     ];
