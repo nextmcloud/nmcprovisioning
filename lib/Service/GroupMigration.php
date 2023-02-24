@@ -73,7 +73,7 @@ class GroupMigration
             var_dump("Migrating users " . $i . " to " . ($i + $limit));
             try {
                 foreach ($this->getGroups() as $group) {
-                    $this->migrateGroup($group['gid'], $limit, $i);
+                    $this->migrateGroup($group['gid'], $i + $limit, $i);
                 }
             } catch (Exception $e) {
             }
