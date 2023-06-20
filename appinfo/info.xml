@@ -17,7 +17,7 @@
 		    <!-- NextMagentaCloud support must check functionality and increase max-version
 			     with each major release change. See architecture documentation for details.
      		-->
-		<nextcloud min-version="23" max-version="24"/>
+		<nextcloud min-version="23" max-version="25"/>
 	</dependencies>
     <background-jobs>
 	    <job>OCA\NextMagentaCloudProvisioning\User\UserAccountDeletionJob</job>
