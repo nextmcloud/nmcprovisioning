@@ -64,7 +64,7 @@ class NmcUserService
                                 ProviderMapper   $oidcProviderMapper,
                                 IGroupManager    $groupManager)
     {
-        $this->groupHelper = new GroupHelper();
+        $this->groupHelper = new GroupHelper($config);
         $this->userManager = $userManager;
         $this->accountManager = $accountManager;
         $this->serverc = $serverContainer;
@@ -282,6 +282,7 @@ class NmcUserService
         $this->oidcUserMapper->update($oidcUser);
         $this->logger->debug("PROV standard account");
         $user = $this->userManager->get($oidcUser->getUserId());
+        $this->logger->info("UserID: ".$oidcUser->getUserId());
 
         if ($altemail !== null) {
             $this->logger->debug("PROV altemail");

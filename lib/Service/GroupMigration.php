@@ -4,6 +4,7 @@ namespace OCA\NextMagentaCloudProvisioning\Service;
 
 use OC\User\Manager;
 use OCP\DB\Exception;
+use OCP\IConfig;
 use OCP\IDBConnection;
 use OCP\IGroupManager;
 
@@ -32,12 +33,14 @@ class GroupMigration
     private Manager $userManager;
 
     /**
-     * @param \OCP\IDBConnection $db
-     * @param \OCP\IGroupManager $groupManager
+     * @param IDBConnection $db
+     * @param IGroupManager $groupManager
+     * @param Manager $userManager
+     * @param IConfig $config
      */
-    public function __construct(IDBConnection $db, IGroupManager $groupManager, Manager $userManager)
+    public function __construct(IDBConnection $db, IGroupManager $groupManager, Manager $userManager, IConfig $config)
     {
-        $this->groupHelper = new GroupHelper();
+        $this->groupHelper = new GroupHelper($config);
         $this->groupMapping = $this->groupHelper->getGroupMapping();
         $this->db = $db;
         $this->groupManager = $groupManager;

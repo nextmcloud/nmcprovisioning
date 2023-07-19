@@ -23,6 +23,7 @@ class TariffRules
     public const NMC_RATE_FREE10 = '10 GB';
     public const NMC_RATE_S15 = '15 GB';
     public const NMC_RATE_S25 = '25 GB';
+    public const NMC_RATE_S64 = '64 GB';
     public const NMC_RATE_M100 = '100 GB';
     public const NMC_RATE_L500 = '500 GB';
     public const NMC_RATE_XL1 = '1 TB';
@@ -79,6 +80,7 @@ class TariffRules
             // active free rates
             $this->rate_free3($rateFlags),
             $this->rate_s15($rateFlags),
+            $this->rate_s64($rateFlags),
             // active paid rates
             $this->rate_m100($rateFlags),
             $this->rate_l500($rateFlags),
@@ -163,6 +165,17 @@ class TariffRules
     {
         if (property_exists($rateFlags, 'urn:telekom.com:f467') && ($rateFlags->{'urn:telekom.com:f467'} == "1")) {
             return self::NMC_RATE_S25;
+        }
+        return self::NMC_RATE_NONE;
+    }
+
+    /**
+     * Detect (old) Magenta S25 rate from Telekom feature flags
+     */
+    protected function rate_s64($rateFlags): string
+    {
+        if (property_exists($rateFlags, 'urn:telekom.com:f008') && ($rateFlags->{'urn:telekom.com:f008'} == "1")) {
+            return self::NMC_RATE_S64;
         }
         return self::NMC_RATE_NONE;
     }

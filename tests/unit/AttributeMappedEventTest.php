@@ -149,6 +149,15 @@ class AttributeMappedEventTest extends TestCase {
 		$this->assertEquals(TariffRules::NMC_RATE_S25, $event->getValue());
 	}
 
+    public function testS64GBQuota() {
+        $claims = json_decode(self::CLAIM_NOFLAGS);
+        $claims->{'urn:telekom.com:f008'} = '1';
+		$event = new AttributeMappedEvent(ProviderService::SETTING_MAPPING_QUOTA, $claims, null);
+		$this->listener->handle($event);
+		$this->assertNotNull($event->getValue());
+		$this->assertEquals(TariffRules::NMC_RATE_S25, $event->getValue());
+	}
+
     public function testM100GBQuota() {
         $claims = json_decode(self::CLAIM_NOFLAGS);
         $claims->{'urn:telekom.com:f468'} = '1';

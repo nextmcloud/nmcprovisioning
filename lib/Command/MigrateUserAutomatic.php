@@ -3,6 +3,7 @@
 namespace OCA\NextMagentaCloudProvisioning\Command;
 
 use OCA\NextMagentaCloudProvisioning\Service\GroupMigration;
+use OCP\IConfig;
 use OCP\IDBConnection;
 use OCP\IGroupManager;
 use OCP\IUserManager;
@@ -20,11 +21,11 @@ class MigrateUserAutomatic extends Command
     private IDBConnection $db;
     private GroupMigration $groupMigration;
 
-    public function __construct(IDBConnection $db, IGroupManager $groupManager, IUserManager $userManager)
+    public function __construct(IDBConnection $db, IGroupManager $groupManager, IUserManager $userManager, IConfig $config)
     {
         parent::__construct();
         $this->db = $db;
-        $this->groupMigration = new GroupMigration($db, $groupManager, $userManager);
+        $this->groupMigration = new GroupMigration($db, $groupManager, $userManager, $config);
     }
 
     /**

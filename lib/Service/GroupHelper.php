@@ -2,8 +2,17 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Service;
 
+use OCP\IConfig;
+
 class GroupHelper
 {
+
+    private IConfig $iConfig;
+
+    public function __construct(IConfig $iConfig)
+    {
+        $this->iConfig = $iConfig;
+    }
 
     /**
      * @var array $groupMapping
@@ -31,6 +40,7 @@ class GroupHelper
             'old_quota' => '15',
             'search_range' => '1',
             'ready_only' => true,
+            'flag' => 'f048',
         ],
         'S25' => [
             'name' => 'S25',
@@ -39,6 +49,14 @@ class GroupHelper
             'old_quota' => '25',
             'search_range' => '1',
             'read_only' => true,
+            'flag' => 'f048',
+        ],
+        'S64' => [
+            'name' => 'S64',
+            'space_limit' => '64 GB',
+            'old_group' => 'S64',
+            'old_quota' => '64',
+            'search_range' => '1',
         ],
         'M100' => [
             'name' => 'M100',
@@ -77,7 +95,7 @@ class GroupHelper
      */
     public function getGroupMapping(): array
     {
-        return $this->groupMapping;
+        return $this->iConfig->getSystemValue('nmc_provisioning_groupMapping', $this->groupMapping);
     }
 
 
