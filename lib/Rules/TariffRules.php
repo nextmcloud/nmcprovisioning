@@ -2,6 +2,7 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Rules;
 
+use OCA\NextMagentaCloudProvisioning\Logger\ProvisioningLogger;
 use OCA\NextMagentaCloudProvisioning\Service\GroupHelper;
 use OCP\ILogger;
 
@@ -24,6 +25,9 @@ class TariffRules
 
     private GroupHelper $groupHelper;
 
+    /** @var ProvisioningLogger */
+    private ProvisioningLogger $provisioningLogger;
+
     private array $displaynameSearch = [
         ['zusa', 'name'],
         ['displayName'],
@@ -33,10 +37,11 @@ class TariffRules
         ['name'],
     ];
 
-    public function __construct(ILogger $logger, GroupHelper $groupHelper)
+    public function __construct(ILogger $logger, GroupHelper $groupHelper, ProvisioningLogger $provisioningLogger)
     {
         $this->logger = $logger;
         $this->groupHelper = $groupHelper;
+        $this->provisioningLogger = $provisioningLogger;
     }
 
     /**
@@ -59,7 +64,7 @@ class TariffRules
         }
 
         if (empty($displayname)) {
-            $this->logger->error('Could not derive displayname from claims', ['claims' => $claims]);
+            $this->provisioningLogger->warning('Could not derive displayname from claims', ['claims' => $claims]);
             return null;
         }
 
@@ -106,9 +111,11 @@ class TariffRules
 
         //Check if no rate then return none
         if (empty($quotaLimit)) {
+            $this->provisioningLogger->debug('No rate found, returning NONE');
             return $this->groupHelper->getGroupMapping()["NONE"]['space_limit'];
         }
 
+        $this->provisioningLogger->debug('Found quota', ['quotaLimit' => $quotaLimit]);
         //Return the max quota limit
         return max($quotaLimit);
     }
