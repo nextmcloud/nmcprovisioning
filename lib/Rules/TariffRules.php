@@ -5,17 +5,6 @@ namespace OCA\NextMagentaCloudProvisioning\Rules;
 use OCA\NextMagentaCloudProvisioning\Service\GroupHelper;
 use OCP\ILogger;
 
-function max_quota($carry, $item)
-{
-    $carry_size = OC_Helper::computerFileSize($carry);
-    $item_size = OC_Helper::computerFileSize($item);
-    if ($item_size > $carry_size) {
-        return $item;
-    } else {
-        return $carry;
-    }
-}
-
 class TariffRules
 {
     // NextMagentaCLoud current tariffs
