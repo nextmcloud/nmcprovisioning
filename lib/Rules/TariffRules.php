@@ -4,7 +4,6 @@ namespace OCA\NextMagentaCloudProvisioning\Rules;
 
 use OCA\NextMagentaCloudProvisioning\Logger\ProvisioningLogger;
 use OCA\NextMagentaCloudProvisioning\Service\GroupHelper;
-use OCP\ILogger;
 
 class TariffRules
 {
@@ -20,9 +19,6 @@ class TariffRules
     public const NMC_RATE_XL1 = '1 TB';
     public const NMC_RATE_XXL5 = '5 TB';
 
-    /** @var ILogger */
-    private $logger;
-
     private GroupHelper $groupHelper;
 
     /** @var ProvisioningLogger */
@@ -37,9 +33,8 @@ class TariffRules
         ['name'],
     ];
 
-    public function __construct(ILogger $logger, GroupHelper $groupHelper, ProvisioningLogger $provisioningLogger)
+    public function __construct(GroupHelper $groupHelper, ProvisioningLogger $provisioningLogger)
     {
-        $this->logger = $logger;
         $this->groupHelper = $groupHelper;
         $this->provisioningLogger = $provisioningLogger;
     }
