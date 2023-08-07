@@ -35,6 +35,7 @@ class TariffRules
     public function deriveDisplayname(object $claims)
     {
         $displayname = "";
+        $this->provisioningLogger->debug("test");
         foreach ($this->displaynameSearch as $search) {
             foreach ($search as $field) {
                 $fieldSearch = 'urn:telekom.com:' . $field;
@@ -81,7 +82,7 @@ class TariffRules
      * Central rule to derive quota
      * consistently from SAM/SLUP fields
      */
-    private function deriveQuota(object $rateFlat)
+    public function deriveQuota(object $rateFlat)
     {
         //Save the quota limit
         $quotaLimit = [];
