@@ -2,6 +2,7 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Rules;
 
+use InvalidArgumentException;
 use OCA\NextMagentaCloudProvisioning\Logger\ProvisioningLogger;
 use OCA\NextMagentaCloudProvisioning\Service\GroupHelper;
 
@@ -102,6 +103,34 @@ class TariffRules
 
         $this->provisioningLogger->debug('Found quota', ['quotaLimit' => $quotaLimit]);
         //Return the max quota limit
-        return max($quotaLimit);
+        return $this->getMaxSize($quotaLimit);
     }
+
+    private function convertToBytes($size)
+    {
+        $units = array('B' => 0, 'KB' => 1, 'MB' => 2, 'GB' => 3, 'TB' => 4);
+        $parts = explode(' ', $size);
+        $number = (float)$parts[0];
+        $unit = strtoupper(trim($parts[1]));
+
+        if (!isset($units[$unit])) {
+            throw new InvalidArgumentException("Ungültige Größeneinheit: $unit");
+        }
+
+        $bytes = $number * pow(1024, $units[$unit]);
+        return $bytes;
+    }
+
+    private function getMaxSize($sizes)
+    {
+        $maxSize = 0;
+
+        foreach ($sizes as $size) {
+            $bytes = $this->convertToBytes($size);
+            $maxSize = max($maxSize, $bytes);
+        }
+
+        return $maxSize;
+    }
+
 }
