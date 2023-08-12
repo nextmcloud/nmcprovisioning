@@ -12,7 +12,7 @@ class ProvisioningLogger
 
     public function __construct(ILogFactory $logFactory, IConfig $config) {
         $default = $config->getSystemValue('datadirectory', \OC::$SERVERROOT . '/data') . '/nmc_provisioning.log';
-        $logFile = $config->getSystemValue('logfile_nmc_provisioning', 'logfile', $default);
+        $logFile = $config->getSystemValue('logfile_nmc_provisioning', $default);
         $this->parentLogger = $logFactory->getCustomPsrLogger($logFile);
     }
 

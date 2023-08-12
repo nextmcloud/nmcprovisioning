@@ -33,10 +33,9 @@ class TariffRules
      * Central rule to derive displayname
      * consistently from SAM/SLUP fields
      */
-    public function deriveDisplayname(object $claims)
+    public function deriveDisplayname(object $claims): ?string
     {
         $displayname = "";
-        $this->provisioningLogger->debug("test");
         foreach ($this->displaynameSearch as $search) {
             foreach ($search as $field) {
                 $fieldSearch = 'urn:telekom.com:' . $field;
@@ -55,28 +54,6 @@ class TariffRules
         }
 
         return trim($displayname);
-
-/*        if (property_exists($claims, 'urn:telekom.com:zusa') && property_exists($claims, 'urn:telekom.com:name')) {
-            // try to get zusa and name from claims only deliverd from slup when it is not empty, compute the displayname from our own
-            return $claims->{'urn:telekom.com:zusa'} . ' ' . $claims->{'urn:telekom.com:name'};
-        } else if (property_exists($claims, 'urn:telekom.com:displayName')) {
-            // try to get displayname from claims only deliverd from sam when it is not empty
-            return $claims->{'urn:telekom.com:displayName'};
-        } else if (property_exists($claims, 'urn:telekom.com:mainEmail')) {
-            // try to get mainmail from claims only deliverd from sam when it is not empty
-            return strstr($claims->{'urn:telekom.com:mainEmail'}, '@', true);
-        } else if (property_exists($claims, 'urn:telekom.com:extmail')) {
-            // try to get extmail from claims only deliverd from sam when it is not empty
-            return strstr($claims->{'urn:telekom.com:extmail'}, '@', true);
-        } else if (property_exists($claims, 'urn:telekom.com:extMail')) {
-            // try to get extMail from claims only deliverd from sam when it is not empty
-            return strstr($claims->{'urn:telekom.com:extMail'}, '@', true);
-        } else if (property_exists($claims, 'urn:telekom.com:name')) {
-            // try to get zusa and name from claims only deliverd from slup when it is not empty, compute the displayname from our own
-            return $claims->{'urn:telekom.com:name'};
-        } else {
-            return null;
-        }*/
     }
 
     /**
@@ -106,7 +83,7 @@ class TariffRules
         return $this->getMaxSize($quotaLimit);
     }
 
-    private function convertToBytes($size)
+    private function convertToBytes($size): float
     {
         $units = array('B' => 0, 'KB' => 1, 'MB' => 2, 'GB' => 3, 'TB' => 4);
         $parts = explode(' ', $size);
@@ -114,7 +91,7 @@ class TariffRules
         $unit = strtoupper(trim($parts[1]));
 
         if (!isset($units[$unit])) {
-            throw new InvalidArgumentException("Ungültige Größeneinheit: $unit");
+            throw new InvalidArgumentException("Invalid size unit: $unit");
         }
 
         $bytes = $number * pow(1024, $units[$unit]);

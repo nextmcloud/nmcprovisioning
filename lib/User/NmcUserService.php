@@ -2,8 +2,14 @@
 
 namespace OCA\NextMagentaCloudProvisioning\User;
 
+use DateInterval;
+use DateTime;
+use DateTimeInterface;
+use OC;
 use OC\Authentication\Token\IProvider;
+use OC_Util;
 use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
+use OCA\NextMagentaCloudProvisioning\Logger\ProvisioningLogger;
 use OCA\NextMagentaCloudProvisioning\Service\GroupHelper;
 use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\User;
@@ -51,14 +57,20 @@ class NmcUserService
     /** @var ISecureRandom */
     private $random;
 
+    /** @var GroupHelper */
     private GroupHelper $groupHelper;
 
+    /** @var IGroupManager */
     private IGroupManager $groupManager;
+
+    /** @var ProvisioningLogger */
+    private ProvisioningLogger $provisioningLogger;
 
     public function __construct(IUserManager     $userManager,
                                 IAccountManager  $accountManager,
                                 IServerContainer $serverContainer,
                                 ILogger          $logger,
+                                ProvisioningLogger $provisioningLogger,
                                 IConfig          $config,
                                 UserMapper       $oidcUserMapper,
                                 ProviderMapper   $oidcProviderMapper,
@@ -73,6 +85,7 @@ class NmcUserService
         $this->oidcUserMapper = $oidcUserMapper;
         $this->oidcProviderMapper = $oidcProviderMapper;
         $this->groupManager = $groupManager;
+        $this->provisioningLogger = $provisioningLogger;
     }
 
     /**
@@ -169,10 +182,10 @@ class NmcUserService
      * `sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userretention --value P60DT1H`
      * @return the computed deletion date
      */
-    public function markDeletion(string $userId, \DateTime $withdrawTime): \DateTime
+    public function markDeletion(string $userId, DateTime $withdrawTime): DateTime
     {
         $deletionDate = clone $withdrawTime;
-        $retention = new \DateInterval($this->config->getAppValue('nmcprovisioning', 'userretention', "P60D"));
+        $retention = new DateInterval($this->config->getAppValue('nmcprovisioning', 'userretention', "P60D"));
         $deletionDate->add($retention);
         $this->config->setUserValue($userId, Application::APP_ID, 'deletion', $deletionDate->getTimestamp());
         return $deletionDate;
@@ -189,11 +202,11 @@ class NmcUserService
     /**
      *  Get planned deletion date, or null if none.
      */
-    public function getDeletionDateTime(string $userId): ?\DateTime
+    public function getDeletionDateTime(string $userId): ?DateTime
     {
         $delTs = $this->config->getUserValue($userId, Application::APP_ID, 'deletion', null);
         if ($delTs != null) {
-            $delDate = new \DateTime();
+            $delDate = new DateTime();
             $delDate->setTimestamp($delTs);
             return $delDate;
         } else {
@@ -308,7 +321,7 @@ class NmcUserService
         try {
             $this->logger->debug("PROV folder");
             $userFolder = $this->serverc->getUserFolder($user->getUID());
-            \OC::$server->getLogger()->debug('nmcuser_oidc: User folder created "' . $user->getUID() . '", exists=' . ($this->serverc->getRootFolder()->nodeExists('/' . $user->getUID() . '/files') ? 'true' : 'false'), ['app' => 'debug_create']);
+            OC::$server->getLogger()->debug('nmcuser_oidc: User folder created "' . $user->getUID() . '", exists=' . ($this->serverc->getRootFolder()->nodeExists('/' . $user->getUID() . '/files') ? 'true' : 'false'), ['app' => 'debug_create']);
 
             // Write a temporary file to the user home to make sure it is properly setup
             // FIXME: Remove once the issue with the missing user directory on concurrent webdav requests are sorted out
@@ -316,9 +329,9 @@ class NmcUserService
             $file->delete();
 
             // copy skeleton
-            \OC_Util::copySkeleton($user->getUID(), $userFolder);
+            OC_Util::copySkeleton($user->getUID(), $userFolder);
         } catch (NotPermittedException $ex) {
-            \OC::$server->getLogger()->logException($ex, ['app' => 'nmcuser_oidc']);
+            OC::$server->getLogger()->logException($ex, ['app' => 'nmcuser_oidc']);
             throw new ForbiddenException("Newly created user cannot init home folder. Reason:\n" . $ex->getMessage());
         }
 
@@ -383,7 +396,7 @@ class NmcUserService
         ];
         $deletionDate = $this->getDeletionDateTime($user->getUID());
         if (!is_null($deletionDate)) {
-            $userState['deletion'] = $deletionDate->format(\DateTimeInterface::ISO8601);
+            $userState['deletion'] = $deletionDate->format(DateTimeInterface::ISO8601);
         }
         return $userState;
     }
