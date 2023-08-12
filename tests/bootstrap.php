@@ -30,6 +30,7 @@ require_once __DIR__.'/../vendor/autoload.php';
 \OC::$composerAutoloader->addPsr4('OCA\\NextMagentaCloudProvisioning\\TestHelper\\', dirname(__FILE__) . '/helper/', true);
 \OC::$composerAutoloader->addPsr4('OCA\\NextMagentaCloudProvisioning\\UnitTest\\', dirname(__FILE__) . '/unit/', true);
 //\OC_App::loadApp('user_oidc'); // we have to load the dependent app also
+\OC_App::loadApp('user_oidc');
 \OC_App::loadApp('nmcprovisioning');
 
 OC_Hook::clear();

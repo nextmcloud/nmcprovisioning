@@ -4,22 +4,22 @@ declare(strict_types=1);
 
 namespace OCA\NextMagentaCloudProvisioning\UnitTest;
 
-use OCA\NextMagentaCloudProvisioning\TestHelper\StackedCleanupTestCase;
-
-use OCP\ILogger;
-use OCP\IConfig;
-use OCP\IUserManager;
-use OCP\IServerContainer;
-use OCP\Accounts\IAccountManager;
-
-
 use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
 
-use OCA\UserOIDC\Db\UserMapper;
-use OCA\UserOIDC\Db\ProviderMapper;
-
 use OCA\NextMagentaCloudProvisioning\Db\UserQueries;
+use OCA\NextMagentaCloudProvisioning\TestHelper\StackedCleanupTestCase;
 use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
+use OCA\UserOIDC\Db\ProviderMapper;
+use OCA\UserOIDC\Db\UserMapper;
+
+
+use OCP\Accounts\IAccountManager;
+
+use OCP\IConfig;
+use OCP\ILogger;
+
+use OCP\IServerContainer;
+use OCP\IUserManager;
 
 class UserDeletionDbTest extends StackedCleanupTestCase {
 	public function setUp(): void {
@@ -164,9 +164,9 @@ class UserDeletionDbTest extends StackedCleanupTestCase {
 		$uidCandidates = $this->userQueries->findDeletions($refDateTime);
 		$uids = $this->filterTestData($uidCandidates);
 		$this->assertNotEmpty($uids);
-        $this->assertContains("120042010000000004200002", $uids);
+		$this->assertContains("120042010000000004200002", $uids);
 		$this->assertEquals(1, count($uids));
-    }
+	}
 
 	public function testDeletionsResultOneAll() {
 		$delDateTime = new \DateTime();
@@ -189,8 +189,8 @@ class UserDeletionDbTest extends StackedCleanupTestCase {
 		$uidCandidates = $this->userQueries->findDeletions($refDateTime);
 		$uids = $this->filterTestData($uidCandidates);
 		$this->assertNotEmpty($uids);
-        $this->assertContains("120042010000000004200002", $uids);
+		$this->assertContains("120042010000000004200002", $uids);
 		$this->assertEquals(1, count($uids));
-    }
+	}
 
 }
