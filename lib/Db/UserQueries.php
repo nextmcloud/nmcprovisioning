@@ -25,11 +25,11 @@ declare(strict_types=1);
 
 namespace OCA\NextMagentaCloudProvisioning\Db;
 
-use OCP\IDBConnection;
+use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
 
 use OCP\DB\QueryBuilder\IQueryBuilder;
 
-use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
+use OCP\IDBConnection;
 
 class UserQueries {
 	/** @var IDBConnection */
@@ -50,14 +50,14 @@ class UserQueries {
 		//->andWhere($qb->expr()->lt('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT), IQueryBuilder::PARAM_INT))
 		$qb->select('userid')
 			->from('preferences')
-            ->where($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
-            ->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
-            ->andWhere($qb->expr()->lt('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT)))
-            ->setMaxResults($limit)
+			->where($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
+			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
+			->andWhere($qb->expr()->lt('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT)))
+			->setMaxResults($limit)
 			->setFirstResult($offset);
 
 		$result = $qb->execute();
-        $uids = [];
+		$uids = [];
 		while ($row = $result->fetch()) {
 			\array_push($uids, (string)$row['userid']);
 		}

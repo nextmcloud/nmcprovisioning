@@ -2,15 +2,16 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Event;
 
-use OCP\ILogger;
-
-use OCP\EventDispatcher\Event;
-use OCP\EventDispatcher\IEventListener;
-
+use OCA\NextMagentaCloudProvisioning\Rules\DisplaynameRules;
 use OCA\NextMagentaCloudProvisioning\Rules\TariffRules;
 
 use OCA\UserOIDC\Event\AttributeMappedEvent;
 use OCA\UserOIDC\Service\ProviderService;
+
+use OCP\EventDispatcher\Event;
+
+use OCP\EventDispatcher\IEventListener;
+use OCP\ILogger;
 
 class UserAttributeListener implements IEventListener {
 
@@ -20,11 +21,16 @@ class UserAttributeListener implements IEventListener {
 	/** @var TariffRules */
 	private $tariffRules;
 
+	/** @var DisplaynameRules */
+	private $displaynameRules;
+
 
 	public function __construct(ILogger $logger,
-								TariffRules $tariffRules) {
+		TariffRules $tariffRules,
+		DisplaynameRules $displaynameRules) {
 		$this->logger = $logger;
 		$this->tariffRules = $tariffRules;
+		$this->displaynameRules = $displaynameRules;
 	}
 
 	public function handle(Event $event): void {
@@ -47,9 +53,9 @@ class UserAttributeListener implements IEventListener {
 		$claims = $attrEvent->getClaims();
 		$this->logger->debug($attrEvent->getAttribute() . " processing: " . json_encode(get_object_vars($claims)));
 
-		$displayname = $this->tariffRules->deriveDisplayname($claims);
+		$displayname = $this->displaynameRules->deriveDisplayname($claims);
 		$attrEvent->setValue($displayname);
-    }
+	}
 
 	protected function onQuotaMapping(AttributeMappedEvent $attrEvent) {
 		$claims = $attrEvent->getClaims();
