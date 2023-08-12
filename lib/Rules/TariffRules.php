@@ -80,7 +80,7 @@ class TariffRules
 
         $this->provisioningLogger->debug('Found quota', ['quotaLimit' => $quotaLimit]);
         //Return the max quota limit
-        return $this->getMaxSize($quotaLimit);
+        return $this->convertToSize($this->getMaxSize($quotaLimit));
     }
 
     private function convertToBytes($size): float
@@ -96,6 +96,22 @@ class TariffRules
 
         $bytes = $number * pow(1024, $units[$unit]);
         return $bytes;
+    }
+
+    private function convertToSize($bytes): string
+    {
+        $units = array('B' => 0, 'KB' => 1, 'MB' => 2, 'GB' => 3, 'TB' => 4);
+        //Change bytes to correct b, kb, mb, gb, tb check what is the max
+        $unit = 'B';
+        $number = $bytes;
+        foreach ($units as $key => $value) {
+            if ($bytes / pow(1024, $value) < 1024) {
+                $unit = $key;
+                $number = $bytes / pow(1024, $value);
+                break;
+            }
+        }
+        return $number . ' ' . $unit;
     }
 
     private function getMaxSize($sizes)
