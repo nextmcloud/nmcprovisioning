@@ -6,10 +6,10 @@ namespace OCA\NextMagentaCloudProvisioning\UnitTest;
 
 use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
 
-use OCA\NextMagentaCloudProvisioning\Rules\DisplaynameRules;
-use OCA\NextMagentaCloudProvisioning\Rules\TariffRules;
-
 use OCA\NextMagentaCloudProvisioning\Event\UserAttributeListener;
+use OCA\NextMagentaCloudProvisioning\Rules\DisplaynameRules;
+
+use OCA\NextMagentaCloudProvisioning\Rules\TariffRules;
 use OCA\UserOIDC\Event\AttributeMappedEvent;
 use OCA\UserOIDC\Service\ProviderService;
 
