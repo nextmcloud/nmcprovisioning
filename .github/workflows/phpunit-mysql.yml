@@ -17,7 +17,7 @@ on:
       - '.php-cs-fixer.dist.php'
       - 'composer.json'
       - 'composer.lock'
-      #- '.github/workflows/**'
+      - '.github/workflows/phpunit*.yml'
 
   push:
     branches:
