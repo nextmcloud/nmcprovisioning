@@ -47,22 +47,22 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->config->expects($this->any())
 		->method("getAppValue")
 		->with($this->equalTo('nmcprovisioning'),
-			$this->logicalOr($this->equalTo('userretention'), 
-                            $this->equalTo('useraccessurl'), 
-                            $this->equalTo('userwithdrawurl'), 
-                            $this->equalTo('userpreserveurl'),
-                            $this->equalTo('userotturl')))
+			$this->logicalOr($this->equalTo('userretention'),
+				$this->equalTo('useraccessurl'),
+				$this->equalTo('userwithdrawurl'),
+				$this->equalTo('userpreserveurl'),
+				$this->equalTo('userotturl')))
 		->willReturn($this->returnCallback(function ($app, $key) {
-            $values = [
-                'userwithdrawurl' => "https://cloud.telekom-dienste.de",
-                'userpreserveurl' => "https://telekom.example.com/",
-                'useraccessurl' => "https://cloud.telekom-dienste.de/tarife",
-                'userotturl' => "https://cloud.telekom-dienste.de/ott",
-                'userretention' => "P60D",
+			$values = [
+				'userwithdrawurl' => "https://cloud.telekom-dienste.de",
+				'userpreserveurl' => "https://telekom.example.com/",
+				'useraccessurl' => "https://cloud.telekom-dienste.de/tarife",
+				'userotturl' => "https://cloud.telekom-dienste.de/ott",
+				'userretention' => "P60D",
 
-            ];
+			];
 
-            return $values[$key];
+			return $values[$key];
 		}));
 	}
 
