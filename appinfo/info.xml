@@ -6,7 +6,7 @@
 	<summary>NextMagentaCloud business functions for customer tariff evaluation</summary>
 	<description>This app contains business logic to evaluate provisoning info paased in
 as set of openid claim-like attributes</description>
-	<version>1.0.9</version>
+	<version>1.0.9-nmc</version>
 	<licence>agpl</licence>
 	<author>Bernd Rederlechner</author>
 	<namespace>NextMagentaCloudProvisioning</namespace>
