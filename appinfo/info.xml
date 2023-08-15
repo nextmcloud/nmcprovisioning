@@ -6,7 +6,7 @@
 	<summary>NextMagentaCloud business functions for customer tariff evaluation</summary>
 	<description>This app contains business logic to evaluate provisoning info paased in
 as set of openid claim-like attributes</description>
-	<version>2.0.0</version>
+	<version>1.0.9</version>
 	<licence>agpl</licence>
 	<author>Bernd Rederlechner</author>
 	<namespace>NextMagentaCloudProvisioning</namespace>
@@ -18,7 +18,7 @@ as set of openid claim-like attributes</description>
 		    <!-- NextMagentaCloud support must check functionality and increase max-version
 			     with each major release change. See architecture documentation for details.
      		-->
-		<nextcloud min-version="23" max-version="28"/>
+		<nextcloud min-version="22" max-version="28"/>
 	</dependencies>
     <background-jobs>
 	    <job>OCA\NextMagentaCloudProvisioning\User\UserAccountDeletionJob</job>
