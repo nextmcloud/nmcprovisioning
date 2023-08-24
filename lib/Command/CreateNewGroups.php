@@ -15,34 +15,30 @@ use Symfony\Component\Console\Output\OutputInterface;
  * Class CreateNewGroups
  * @package OCA\NextMagentaCloudProvisioning\Command
  */
-class CreateNewGroups extends Command
-{
+class CreateNewGroups extends Command {
 
-    private IDBConnection $db;
-    private GroupMigration $groupMigration;
+	private IDBConnection $db;
+	private GroupMigration $groupMigration;
 
-    public function __construct(IDBConnection $db, IGroupManager $groupManager, IUserManager $userManager, IConfig $config)
-    {
-        parent::__construct();
-        $this->db = $db;
-        $this->groupMigration = new GroupMigration($db, $groupManager, $userManager, $config);
-    }
+	public function __construct(IDBConnection $db, IGroupManager $groupManager, IUserManager $userManager, IConfig $config) {
+		parent::__construct();
+		$this->db = $db;
+		$this->groupMigration = new GroupMigration($db, $groupManager, $userManager, $config);
+	}
 
-    /**
-     * It sets the name and the description of the command
-     * @return void
-     */
-    protected function configure(): void
-    {
-        $this
-            ->setName('app:generate_new_provisioning_groups')
-            ->setDescription('Generate new provisioning groups');
-    }
+	/**
+	 * It sets the name and the description of the command
+	 * @return void
+	 */
+	protected function configure(): void {
+		$this
+			->setName('app:generate_new_provisioning_groups')
+			->setDescription('Generate new provisioning groups');
+	}
 
-    protected function execute(InputInterface $input, OutputInterface $output)
-    {
-        $this->groupMigration->createNewGroups();
-    }
+	protected function execute(InputInterface $input, OutputInterface $output) {
+		$this->groupMigration->createNewGroups();
+	}
 
 
 }

@@ -2,10 +2,10 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Rules;
 
-use OCP\ILogger;
+use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
 use OCP\IConfig;
 
-use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
+use OCP\ILogger;
 
 class UserAccountRules {
 
@@ -19,8 +19,8 @@ class UserAccountRules {
 	private $nmcUserService;
 
 	public function __construct(IConfig $config,
-								ILogger $logger,
-								NmcUserService $nmcUserService) {
+		ILogger $logger,
+		NmcUserService $nmcUserService) {
 		$this->config = $config;
 		$this->logger = $logger;
 		$this->nmcUserService = $nmcUserService;
@@ -103,13 +103,13 @@ class UserAccountRules {
 	 * `sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userratesurl --value "https://cloud.telekom-dienste.de/tarife"`
 	 */
 	public function deriveAccountState(string $uid, ?string $displayname, ?string $mainEmail, ?string $altEmail,
-									string $quota, object $claims, $providerName = 'Telekom') : array {
-        $this->logger->info("PROV {$uid}: Check user existence");
-        if ($this->nmcUserService->userExists($providerName, $uid)) {
-            $this->logger->info("PROV {$uid}: Modify existing");
+		string $quota, object $claims, $providerName = 'Telekom') : array {
+		$this->logger->info("PROV {$uid}: Check user existence");
+		if ($this->nmcUserService->userExists($providerName, $uid)) {
+			$this->logger->info("PROV {$uid}: Modify existing");
 			return $this->deriveExistingAccountState($uid, $displayname, $mainEmail, $altEmail, $quota, $claims, $providerName);
 		} else {
-            $this->logger->info("PROV {$uid}: Create");
+			$this->logger->info("PROV {$uid}: Create");
 			return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $altEmail, $quota, $claims, $providerName);
 		}
 	}
@@ -120,7 +120,7 @@ class UserAccountRules {
 	 * In many negative cases, no user account is created at all.
 	 */
 	protected function deriveNewAccountState(string $uid, ?string $displayname, ?string $mainEmail, ?string $altEmail,
-											string $quota, object $claims, $providerName) : array {
+		string $quota, object $claims, $providerName) : array {
 		if (is_null($displayname)) {
 			$this->logger->error("{$uid}: New user without displayName");
 			return array('allowed' => false, 'reason' => 'No displayname no new account', 'changed' => false);
@@ -135,7 +135,7 @@ class UserAccountRules {
 		if (!$this->isBooked($claims)) {
 			$this->logger->info("{$uid}: New user without MagentaCloud tariff, no user created");
 			$withdrawUrl = $this->config->getAppValue('nmcprovisioning', 'userwithdrawurl',
-													"https://cloud.telekom-dienste.de/tarife");
+				"https://cloud.telekom-dienste.de/tarife");
 			return array('allowed' => false, 'reason' => 'No tariff no new account', 'changed' => false, 'redirect' => $withdrawUrl);
 		}
 		
@@ -150,7 +150,7 @@ class UserAccountRules {
 	 * Many negative cases impact account only on update.
 	 */
 	public function deriveExistingAccountState(string $uid, ?string $displayname, ?string $mainEmail, ?string $altEmail,
-											string $quota, object $claims, $providerName = 'Telekom') : array {
+		string $quota, object $claims, $providerName = 'Telekom') : array {
 		if ($this->isLocked($claims)) {
 			// user is locked due to abuse
 			$this->nmcUserService->update($providerName, $uid, $displayname, $mainEmail, $altEmail, $quota, false, false);
@@ -183,16 +183,16 @@ class UserAccountRules {
 
 			if ($this->isTelekomPreserveProcess($claims)) {
 				$redirect = $this->config->getAppValue('nmcprovisioning', 'userpreserveurl',
-														'https://telekom.example.com/');
+					'https://telekom.example.com/');
 			} elseif ($this->isOTTCustomer($claims)) {
 				$redirect = $this->config->getAppValue('nmcprovisioning', 'userotturl',
-														'https://telekom.example.com/');
+					'https://telekom.example.com/');
 			} elseif ($this->isAccessCustomer($claims)) {
 				$redirect = $this->config->getAppValue('nmcprovisioning', 'useraccessurl',
-														'https://telekom.example.com/');
+					'https://telekom.example.com/');
 			} else {
 				$redirect = $this->config->getAppValue('nmcprovisioning', 'userwithdrawurl',
-														'https://cloud.telekom-dienste.de/tarife');
+					'https://cloud.telekom-dienste.de/tarife');
 			}
 
 			return array('allowed' => false, 'reason' => 'Withdrawn', 'changed' => true, 'redirect' => $redirect);

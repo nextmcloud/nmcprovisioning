@@ -2,17 +2,17 @@
 
 namespace OCA\NextMagentaCloudProvisioning\AppInfo;
 
-use OCP\AppFramework\App;
-use OCP\AppFramework\Bootstrap\IBootContext;
-use OCP\AppFramework\Bootstrap\IBootstrap;
-use OCP\AppFramework\Bootstrap\IRegistrationContext;
+use OCA\NextMagentaCloudProvisioning\Event\UserAccountChangeListener;
+use OCA\NextMagentaCloudProvisioning\Event\UserAttributeListener;
+use OCA\UserOIDC\Event\AttributeMappedEvent;
+use OCA\UserOIDC\Event\UserAccountChangeEvent;
 
 // dependencies to app user_oidc: listen to AttributeMappedEvent
-use OCA\UserOIDC\Event\AttributeMappedEvent;
-use OCA\NextMagentaCloudProvisioning\Event\UserAttributeListener;
+use OCP\AppFramework\App;
+use OCP\AppFramework\Bootstrap\IBootContext;
 
-use OCA\UserOIDC\Event\UserAccountChangeEvent;
-use OCA\NextMagentaCloudProvisioning\Event\UserAccountChangeListener;
+use OCP\AppFramework\Bootstrap\IBootstrap;
+use OCP\AppFramework\Bootstrap\IRegistrationContext;
 
 class Application extends App implements IBootstrap {
 	public const APP_ID = 'nmcprovisioning';

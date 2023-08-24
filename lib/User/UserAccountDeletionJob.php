@@ -2,15 +2,15 @@
 
 namespace OCA\NextMagentaCloudProvisioning\User;
 
-use OCP\AppFramework\Utility\ITimeFactory;
-use OCP\ILogger;
-use OCP\IConfig;
-use OCP\IUserManager;
-
 use OCA\NextMagentaCloudProvisioning\Db\UserQueries;
+use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\BackgroundJob\TimedJob;
+use OCP\IConfig;
+
+use OCP\ILogger;
 
 //use OCP\BackgroundJob\QueuedJob;
-use OCP\BackgroundJob\TimedJob;
+use OCP\IUserManager;
 
 //class SlupCircuitBootJob extends QueuedJob {
 class UserAccountDeletionJob extends TimedJob {
@@ -30,10 +30,10 @@ class UserAccountDeletionJob extends TimedJob {
 
 
 	public function __construct(ITimeFactory $timeFactory,
-								ILogger $logger,
-								IConfig $config,
-								UserQueries $userQueries,
-								IUserManager $userManager) {
+		ILogger $logger,
+		IConfig $config,
+		UserQueries $userQueries,
+		IUserManager $userManager) {
 		parent::__construct($timeFactory);
 		$this->logger = $logger; // this is inconsistent with TimedJob
 		$this->config = $config;
@@ -44,9 +44,9 @@ class UserAccountDeletionJob extends TimedJob {
 		//$destTime = new \DateTime($destTimeString);
 
 		//$diff = $destTime->getTimestamp() - $this->getLastRun();
-        // negative diff means that the lastRun date lies before the plan date today, so run today
-        // otherwise tomorrow
-        $this->setInterval( 3 * 60 * 60 );
+		// negative diff means that the lastRun date lies before the plan date today, so run today
+		// otherwise tomorrow
+		$this->setInterval(3 * 60 * 60);
 	}
 
 	// Method re-declared public for unittest purpose
@@ -59,7 +59,7 @@ class UserAccountDeletionJob extends TimedJob {
 
 		// TODO: chunk deletion loop with offset, limit
 		// if the set of deletion users is too big
-        $refTime = new \DateTime(); // NOW
+		$refTime = new \DateTime(); // NOW
 		$expiredUids = $this->userQueries->findDeletions($refTime);
 		$this->logger->info(\count($expiredUids) . " withdrawn user with expired retention period.");
 		foreach ($expiredUids as $uid) {
