@@ -2,7 +2,7 @@ name: Store version artifacts
 
 on:
   workflow_run:
-    workflows: ["MCLOUD custom server release"]
+    workflows: ["MCLOUD app release"]
     types:
       - completed
   workflow_dispatch:
