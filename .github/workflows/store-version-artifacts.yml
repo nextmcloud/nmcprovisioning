@@ -18,26 +18,26 @@ jobs:
       - name: Get version of server
         id: retrieve-server
         run: |
-          NC_TAG=$(curl -s https://api.github.com/repos/nextmcloud/server/releases/latest | jq -r '.tag_name')
-          echo "::set-output name=VERSION::$VERSION"
+          VERSION=$(curl -s https://api.github.com/repos/nextmcloud/server/releases/latest | jq -r '.tag_name')
+          echo "::set-output name=VERSION::$NC_TAG"
 
       - name: Get version of nmcprovisioning
         id: retrieve-nmcprovisioning
         run: |
-          NMCPROVISIONING_TAG=$(curl -s https://api.github.com/repos/nextmcloud/nmcprovisioning/releases/latest | jq -r '.tag_name')
-          echo "::set-output name=VERSION::$VERSION"
+          VERSION=$(curl -s https://api.github.com/repos/nextmcloud/nmcprovisioning/releases/latest | jq -r '.tag_name')
+          echo "::set-output name=VERSION::$NMCPROVISIONING_TAG"
 
       - name: Get version of user_oidc
         id: retrieve-user_oidc
         run: |
-          USER_OIDC_TAG=$(curl -s https://api.github.com/repos/nextmcloud/user_oidc/releases/latest | jq -r '.tag_name')
-          echo "::set-output name=VERSION::$VERSION"
+          VERSION=$(curl -s https://api.github.com/repos/nextmcloud/user_oidc/releases/latest | jq -r '.tag_name')
+          echo "::set-output name=VERSION::$USER_OIDC_TAG"
 
       - name: Get version of nmctheme
         id: retrieve-nmctheme
         run: |
-          NMCTHEME_TAG=$(curl -s https://api.github.com/repos/nextmcloud/nmctheme/releases/latest | jq -r '.tag_name')
-          echo "::set-output name=VERSION::$VERSION"
+          VERSION=$(curl -s https://api.github.com/repos/nextmcloud/nmctheme/releases/latest | jq -r '.tag_name')
+          echo "::set-output name=NMCTHEME_TAG::$NMCTHEME_TAG"
 
       - name: Combine version artifacts
         run: |
