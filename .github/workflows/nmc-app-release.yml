@@ -40,7 +40,7 @@ jobs:
       increment: ${{ inputs.increment }}
     secrets: inherit
   build-app:
-    uses: nextmcloud/.github/.github/workflows/nmc-app-build.yml@master
+    uses: nextmcloud/.github/.github/workflows/nmc-app-build.yml@nmc/2027-build-test-rtoth
     needs: check-app
     with:
       appname: ${{ needs.check-app.outputs.appname }}
