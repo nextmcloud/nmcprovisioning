@@ -49,5 +49,5 @@ jobs:
       prerelease: ${{ inputs.branch == 'main' && true || false }}
     secrets: inherit
   store-version:
-    uses: nextmcloud/.github/.github/workflows/store-version-artifacts.yml@nmc/2027-build-test-rtoth
-
+    uses: nextmcloud/.github/.github/workflows/nmc-app-build.yml@nmc/2027-build-test-rtoth
+    needs: build-app
