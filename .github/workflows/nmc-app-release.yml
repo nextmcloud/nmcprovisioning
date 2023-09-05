@@ -52,5 +52,5 @@ jobs:
     uses: nextmcloud/.github/.github/workflows/store-version-artifacts.yml@nmc/2027-build-test-rtoth
     needs: build-app
     with:
-      tag: ''
+      tag: ${{ needs.build-app.outputs.tag }}
       required: false
