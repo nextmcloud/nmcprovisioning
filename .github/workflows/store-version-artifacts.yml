@@ -39,7 +39,7 @@ jobs:
 
       - name: Combine version artifacts
         run: |
-          echo "customisation-${{ steps.retrieve-server.outputs.VERSION }}" > versions-combined.txt
+          echo "${{ steps.retrieve-server.outputs.VERSION }}" > versions-combined.txt
           echo "${{ steps.retrieve-nmcprovisioning.outputs.VERSION }}" >> versions-combined.txt
           echo "${{ steps.retrieve-user_oidc.outputs.VERSION }}" >> versions-combined.txt
           echo "${{ steps.retrieve-nmctheme.outputs.VERSION }}" >> versions-combined.txt
