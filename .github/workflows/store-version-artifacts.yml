@@ -1,10 +1,8 @@
 name: Store version artifacts
 
 on:
-  workflow_run:
-    workflows: ["MCLOUD app release"]
-    types:
-      - completed
+  workflow_call:
+
   workflow_dispatch:
 
 jobs:
@@ -19,7 +17,7 @@ jobs:
         id: retrieve-server
         run: |
           VERSION=$(curl -s https://api.github.com/repos/nextmcloud/server/releases/latest | jq -r '.tag_name')
-          echo "::set-output name=VERSION::$VERSION"
+          echo "::set-output name=VERSION::$VERSION" 
 
       - name: Get version of nmcprovisioning
         id: retrieve-nmcprovisioning
@@ -41,10 +39,10 @@ jobs:
 
       - name: Combine version artifacts
         run: |
-          echo "customisation-${NC_TAG}" > versions-combined.txt
-          echo "${NMCPROVISIONING_TAG}" >> versions-combined.txt
-          echo "${USER_OIDC_TAG}" >> versions-combined.txt
-          echo "${NMCTHEME_TAG}" >> versions-combined.txt
+          echo "customisation-${{ steps.retrieve-server.outputs.VERSION }}" > versions-combined.txt
+          echo "${{ steps.retrieve-nmcprovisioning.outputs.VERSION }}" >> versions-combined.txt
+          echo "${{ steps.retrieve-user_oidc.outputs.VERSION }}" >> versions-combined.txt
+          echo "${{ steps.retrieve-nmctheme.outputs.VERSION }}" >> versions-combined.txt
 
       - name: Upload combined version artifacts
         uses: actions/upload-artifact@v2

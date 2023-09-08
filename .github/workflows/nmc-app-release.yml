@@ -48,4 +48,7 @@ jobs:
       tag: ${{ needs.check-app.outputs.tag }}
       prerelease: ${{ inputs.branch == 'main' && true || false }}
     secrets: inherit
+  store-version:
+    uses: nextmcloud/.github/.github/workflows/nmc-store-version-artifacts.yml@nmc/2027-build-test-rtoth
+    needs: build-app
 
