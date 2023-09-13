@@ -52,6 +52,6 @@ jobs:
     uses: nextmcloud/.github/.github/workflows/store-version-artifacts.yml@nmc/2027-build-test-rtoth
     needs: build-app
   trigger-image-build:
-    uses: nextmcloud/.github/.github/workflows/nmc-trigger-gitlab-image-build@nmc/2027-build-test-rtoth
+    uses: nextmcloud/.github/.github/workflows/nmc-trigger-gitlab-image-build.yml@nmc/2027-build-test-rtoth
     needs: store-version
 
