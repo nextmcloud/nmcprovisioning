@@ -36,6 +36,16 @@ jobs:
         run: |
           VERSION=$(curl -s https://api.github.com/repos/nextmcloud/nmctheme/releases/latest | jq -r '.tag_name')
           echo "::set-output name=VERSION::$VERSION"
+      - name: Get version of nmctheme
+        id: retrieve-nmcsharing
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/nextmcloud/nmcsharing/releases/latest | jq -r '.tag_name')
+          echo "::set-output name=VERSION::$VERSION"
+      - name: Get version of nmctheme
+        id: retrieve-nmcsettings
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/nextmcloud/nmcsettings/releases/latest | jq -r '.tag_name')
+          echo "::set-output name=VERSION::$VERSION"
 
       - name: Combine version artifacts
         run: |
@@ -43,6 +53,8 @@ jobs:
           echo "${{ steps.retrieve-nmcprovisioning.outputs.VERSION }}" >> versions-combined.txt
           echo "${{ steps.retrieve-user_oidc.outputs.VERSION }}" >> versions-combined.txt
           echo "${{ steps.retrieve-nmctheme.outputs.VERSION }}" >> versions-combined.txt
+          echo "${{ steps.retrieve-nmcsharing.outputs.VERSION }}" >> versions-combined.txt
+          echo "${{ steps.retrieve-nmcsettings.outputs.VERSION }}" >> versions-combined.txt
 
       - name: Upload combined version artifacts
         uses: actions/upload-artifact@v2
