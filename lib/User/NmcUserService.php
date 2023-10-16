@@ -11,7 +11,6 @@ use OCA\UserOIDC\Db\UserMapper;
 use OCP\Accounts\IAccountManager;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Db\MultipleObjectsReturnedException;
-use OCP\Files\NotPermittedException;
 use OCP\IConfig;
 use OCP\IGroupManager;
 use OCP\ILogger;
@@ -350,15 +349,11 @@ class NmcUserService {
         }
     }
 
-	public function update(string $provider,
-		string $username,
+    public function update(User|IUser $user,
 		$displayname = null,
 		$email = null,
-		$altemail = null,
 		$quota = null,
-		$migrated = null,
 		bool   $enabled = null) {
-		$user = $this->findUser($provider, $username);
 		$this->logger->debug("PROV standard account");
 		$oidcUser = $this->oidcUserMapper->getUser($user->getUID());
 //		$userAccount = $this->accountManager->getAccount($user);

@@ -173,19 +173,21 @@ class UserAccountRules {
 	 * and the redirect for general decommissioned accounts with:
 	 * `sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userratesurl --value "https://cloud.telekom-dienste.de/tarife"`
 	 */
-	public function deriveAccountState(string $uid, ?string $displayname, ?string $mainEmail, ?string $altEmail,
-                                       string $quota, object $claims, bool $create = false, $providerName = 'Telekom'): array
+	public function deriveAccountState(string $uid, ?string $displayname, ?string $mainEmail,
+                                       string $quota, object $claims, bool $create = true, $providerName = 'Telekom'): array
     {
 		$this->logger->info("PROV {$uid}: Check user existence");
         //if ($this->nmcUserService->userExists($providerName, $uid)) {
         if ($user = $this->findUser($providerName, $displayname)) {
 			$this->logger->info("PROV {$uid}: Modify existing");
-            return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $altEmail, $quota, $claims, $providerName);
-		} else {
-            //TODO Check is created set, than create user or create not user
+            return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
+		} elseif($create) {
 			$this->logger->info("PROV {$uid}: Create");
-            return $this->deriveNewAccountState($user, $displayname, $mainEmail, $altEmail, $quota, $claims, $providerName);
-		}
+            return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $quota, $claims, $providerName);
+		}else{
+            $this->logger->info("PROV {$uid}: No create");
+            return array('allowed' => false, 'reason' => 'No create', 'changed' => false);
+        }
 	}
 
 	/**
@@ -193,8 +195,8 @@ class UserAccountRules {
 	 *
 	 * In many negative cases, no user account is created at all.
 	 */
-	protected function deriveNewAccountState(string $uid, ?string $displayname, ?string $mainEmail, ?string $altEmail,
-		string $quota, object $claims, $providerName) : array {
+	protected function deriveNewAccountState(string $uid, ?string $displayname, ?string $mainEmail,
+                                             string     $quota, object $claims, $providerName) : array {
 		if (is_null($displayname)) {
 			$this->logger->error("{$uid}: New user without displayName");
 			return array('allowed' => false, 'reason' => 'No displayname no new account', 'changed' => false);
@@ -223,38 +225,38 @@ class UserAccountRules {
 	 *
 	 * Many negative cases impact account only on update.
 	 */
-	public function deriveExistingAccountState(string $uid, ?string $displayname, ?string $mainEmail, ?string $altEmail,
+	public function deriveExistingAccountState(User|IUser $user, ?string $displayname, ?string $mainEmail,
 		string $quota, object $claims, $providerName = 'Telekom') : array {
 		if ($this->isLocked($claims)) {
 			// user is locked due to abuse
-			$this->nmcUserService->update($providerName, $uid, $displayname, $mainEmail, $altEmail, $quota, false, false);
-			$this->logger->info("{$uid}: User locked");
+			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
+			$this->logger->info("{$user->getUID()}: User locked");
 			return array('allowed' => false, 'reason' => 'Locked', 'changed' => true);
 		}
 
 		if ($this->isBooked($claims)) {
 			// user may has been marked for deletion before re-vitalizing account
-			$this->nmcUserService->unmarkDeletion($uid);
-			$deletionMark = $this->nmcUserService->getDeletionDateTime($uid);
+			$this->nmcUserService->unmarkDeletion($user->getUID());
+			$deletionMark = $this->nmcUserService->getDeletionDateTime($user->getUID());
 			// check deletion mark and log error in case
 			if ($deletionMark == null) {
-				$this->logger->info("{$uid}: Deletion mark removed.");
+				$this->logger->info("{$user->getUID()}: Deletion mark removed.");
 			} else {
-				$this->logger->error("{$uid}: Deletion active after reactivation for " . $deletionMark->format(\DateTimeInterface::ISO8601));
+				$this->logger->error("{$user->getUID()}: Deletion active after reactivation for " . $deletionMark->format(\DateTimeInterface::ISO8601));
 			}
 
 			// update case
 			// user is active and gets update
             //TODO Check is update required????
-			$this->nmcUserService->update($providerName, $uid, $displayname, $mainEmail, $altEmail, $quota, false, true);
+			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, true);
 			return array('allowed' => true, 'reason' => 'Updated', 'changed' => true);
 		} else {
 			$withdrawDate = $this->withdrawDate($claims);
-			$deletionDate = $this->nmcUserService->markDeletion($uid, $withdrawDate);
-			$this->logger->info("{$uid}: Withdrawn at " . $withdrawDate->format(\DateTimeInterface::ISO8601) .
+			$deletionDate = $this->nmcUserService->markDeletion($user->getUID(), $withdrawDate);
+			$this->logger->info("{$user->getUID()}: Withdrawn at " . $withdrawDate->format(\DateTimeInterface::ISO8601) .
 								", deletion=" . $deletionDate->format(\DateTimeInterface::ISO8601));
 			// lock and latest update of user data
-			$this->nmcUserService->update($providerName, $uid, $displayname, $mainEmail, $altEmail, $quota, false, false);
+			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
 
 			if ($this->isTelekomPreserveProcess($claims)) {
 				$redirect = $this->config->getAppValue('nmcprovisioning', 'userpreserveurl',
