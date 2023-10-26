@@ -46,5 +46,5 @@ jobs:
       appname: ${{ needs.check-app.outputs.appname }}
       branch: ${{ inputs.branch }}
       tag: ${{ needs.check-app.outputs.tag }}
-      prerelease: ${{ inputs.branch == 'main' && true || false }}
+      prerelease: ${{ inputs.branch == 'master' && true || false }}
     secrets: inherit
