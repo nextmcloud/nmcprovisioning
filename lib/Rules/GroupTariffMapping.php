@@ -39,12 +39,12 @@ class GroupTariffMapping {
 	/**
 	 * @var array $groupMapping
 	 *
-	 * TODO: NO FLAGS but f556 stands for very old
-	 * S25 tariff
+	 * NOTE The NOFLAGS case represents a very old way for
+	 * S25 tariff where only f556 (Mediacenter booked) is set
 	 */
 	private array $groupMapping = [
-		'S25NOFLAGS' => [
-			'name' => 'S25NOFLAGS',
+		'NOFLAGS' => [
+			'name' => 'NOFLAGS',
 			'space_limit' => '25 GB',
 			'old_group' => 'S25',
 		],

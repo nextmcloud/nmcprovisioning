@@ -43,6 +43,27 @@ class UserAccountChangeListenerTest extends TestCase {
 			$this->logger,
 			$this->userService);
 		$this->listener = new UserAccountChangeListener($this->logger, $this->accountRules);
+
+		$this->config->expects($this->any())
+		->method("getAppValue")
+		->with($this->equalTo('nmcprovisioning'),
+			$this->logicalOr($this->equalTo('userretention'),
+				$this->equalTo('useraccessurl'),
+				$this->equalTo('userwithdrawurl'),
+				$this->equalTo('userpreserveurl'),
+				$this->equalTo('userotturl')))
+		->willReturn($this->returnCallback(function ($app, $key) {
+			$values = [
+				'userwithdrawurl' => "https://cloud.telekom-dienste.de",
+				'userpreserveurl' => "https://telekom.example.com/",
+				'useraccessurl' => "https://cloud.telekom-dienste.de/tarife",
+				'userotturl' => "https://cloud.telekom-dienste.de/ott",
+				'userretention' => "P60D",
+
+			];
+
+			return $values[$key];
+		}));
 	}
 
 	public function testWithdrawNonExisting() {
@@ -63,10 +84,6 @@ class UserAccountChangeListenerTest extends TestCase {
 						->method('userExists')
 						->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
 						->willReturn(false);
-		$this->config->expects($this->once())
-						->method("getAppValue")
-						->with($this->equalTo('nmcprovisioning'), $this->equalTo('userwithdrawurl'))
-						->willReturn("https://cloud.telekom-dienste.de/tarife");
 	
 		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
 			"jonny.gyros@ver.sul.t-online.de", "3GB", $oidcClaims);
@@ -74,9 +91,9 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertFalse($event->getResult()->isAccessAllowed());
 		$this->assertEquals('No tariff no new account', $event->getResult()->getReason());
 		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals("https://cloud.telekom-dienste.de/tarife", $event->getResult()->getRedirectUrl());
+		$this->assertEquals("https://cloud.telekom-dienste.de", $event->getResult()->getRedirectUrl());
 	}
-	
+
 	public function testWithdrawNoUsta() {
 		$oidcClaims = json_decode(<<<JSON
             {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0",
@@ -96,14 +113,6 @@ class UserAccountChangeListenerTest extends TestCase {
 						->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
 						->willReturn(true);
 		$this->config->expects($this->once())
-					->method("getAppValue")
-					->with($this->equalTo('nmcprovisioning'), $this->equalTo('userretention'))
-					->willReturn("P60D");
-		$this->config->expects($this->once())
-					 ->method("getAppValue")
-					 ->with($this->equalTo('nmcprovisioning'), $this->equalTo('userwithdrawurl'))
-					 ->willReturn("https://cloud.telekom-dienste.de/tarife");
-		$this->config->expects($this->once())
 					->method("setUserValue")
 					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
 		$this->userService->expects($this->once())
@@ -120,7 +129,7 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertFalse($event->getResult()->isAccessAllowed());
 		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
 		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals($event->getResult()->getRedirectUrl(), "https://cloud.telekom-dienste.de/tarife");
+		$this->assertEquals("https://cloud.telekom-dienste.de", $event->getResult()->getRedirectUrl());
 	}
 
 	public function testPreserveOtherUsta() {
@@ -136,19 +145,11 @@ class UserAccountChangeListenerTest extends TestCase {
             "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
             "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
             JSON);
-		
+
 		$this->userService->expects($this->once())
 							->method('userExists')
 							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
 							->willReturn(true);
-		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('userretention'))
-							->willReturn("P60D");
-		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('userpreserveurl'))
-							->willReturn('https://telekom.example.com/');
 		$this->config->expects($this->once())
 							->method("setUserValue")
 							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
@@ -166,7 +167,7 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertFalse($event->getResult()->isAccessAllowed());
 		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
 		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals($event->getResult()->getRedirectUrl(), 'https://telekom.example.com/');
+		$this->assertEquals('https://telekom.example.com/', $event->getResult()->getRedirectUrl());
 	}
 
 
@@ -190,14 +191,6 @@ class UserAccountChangeListenerTest extends TestCase {
 							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
 							->willReturn(true);
 		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('userretention'))
-							->willReturn("P60D");
-		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('userpreserveurl'))
-							->willReturn('https://telekom.example.com/');
-		$this->config->expects($this->once())
 							->method("setUserValue")
 							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
 		$this->userService->expects($this->once())
@@ -214,7 +207,7 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertFalse($event->getResult()->isAccessAllowed());
 		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
 		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals($event->getResult()->getRedirectUrl(), 'https://telekom.example.com/');
+		$this->assertEquals('https://telekom.example.com/', $event->getResult()->getRedirectUrl());
 	}
 
 	public function testWithdrawOTT() {
@@ -236,14 +229,6 @@ class UserAccountChangeListenerTest extends TestCase {
 							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
 							->willReturn(true);
 		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('userretention'))
-							->willReturn("P60D");
-		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('userotturl'))
-							->willReturn('https://telekom.example.com/');
-		$this->config->expects($this->once())
 							->method("setUserValue")
 							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
 		$this->userService->expects($this->once())
@@ -260,7 +245,7 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertFalse($event->getResult()->isAccessAllowed());
 		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
 		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals($event->getResult()->getRedirectUrl(), 'https://telekom.example.com/');
+		$this->assertEquals("https://cloud.telekom-dienste.de/ott", $event->getResult()->getRedirectUrl());
 	}
 
 	public function testWithdrawAccess() {
@@ -282,14 +267,6 @@ class UserAccountChangeListenerTest extends TestCase {
 							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
 							->willReturn(true);
 		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('userretention'))
-							->willReturn("P60D");
-		$this->config->expects($this->once())
-							->method("getAppValue")
-							->with($this->equalTo('nmcprovisioning'), $this->equalTo('useraccessurl'))
-							->willReturn('https://telekom.example.com/');
-		$this->config->expects($this->once())
 							->method("setUserValue")
 							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
 		$this->userService->expects($this->once())
@@ -306,7 +283,7 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertFalse($event->getResult()->isAccessAllowed());
 		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
 		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals($event->getResult()->getRedirectUrl(), 'https://telekom.example.com/');
+		$this->assertEquals("https://cloud.telekom-dienste.de/tarife", $event->getResult()->getRedirectUrl());
 	}
 
 	public function testUnWithdraw() {

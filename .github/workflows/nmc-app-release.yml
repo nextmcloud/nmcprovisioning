@@ -48,4 +48,18 @@ jobs:
       tag: ${{ needs.check-app.outputs.tag }}
       prerelease: ${{ inputs.branch == 'main' && true || false }}
     secrets: inherit
+  store-variables:
+    name: Store Variables
+    runs-on: ubuntu-latest
+    needs:
+      - build-app
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
 
+      - name: Trigger Store Version Artifacts workflow
+        uses: actions/workflow-dispatch@v2
+        with:
+          workflow: "Store version artifacts"
+          inputs:
+          tag: ${{ needs.build-app.outputs.tag }}
