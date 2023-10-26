@@ -40,9 +40,9 @@ class UserAccountChangeListener implements IEventListener {
 	protected function onChangeAccount(UserAccountChangeEvent $event) {
 		$claims = $event->getClaims();
 		$this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
-		
+
 		$evalResult = $this->accountRules->deriveAccountState($event->getUid(), $event->getDisplayName(),
-			$event->getMainEmail(), null, $event->getQuota(), $claims);
+			$event->getMainEmail(), $event->getQuota(), $claims);
 		if (!array_key_exists('redirect', $evalResult)) {
 			$event->setResult($evalResult['allowed'], $evalResult['reason']);
 		} else {
