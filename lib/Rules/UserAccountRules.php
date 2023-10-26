@@ -183,6 +183,7 @@ class UserAccountRules {
             return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
 		} elseif($create) {
 			$this->logger->info("PROV {$uid}: Create");
+            //Check is -test before @ existing in mainmail
             return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $quota, $claims, $providerName);
 		}else{
             $this->logger->info("PROV {$uid}: No create");
