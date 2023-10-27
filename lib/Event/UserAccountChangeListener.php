@@ -2,16 +2,14 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Event;
 
-use OCP\ILogger;
-
-use OCP\EventDispatcher\Event;
-use OCP\EventDispatcher\IEventListener;
-
 use OCA\NextMagentaCloudProvisioning\Rules\UserAccountRules;
 
 use OCA\UserOIDC\Event\UserAccountChangeEvent;
-use OCA\UserOIDC\Event\UserAccountChangeResult;
-use OCA\UserOIDC\Service\ProviderService;
+use OCP\EventDispatcher\Event;
+
+use OCP\EventDispatcher\IEventListener;
+
+use OCP\ILogger;
 
 class UserAccountChangeListener implements IEventListener {
 
@@ -23,7 +21,7 @@ class UserAccountChangeListener implements IEventListener {
 
 
 	public function __construct(ILogger $logger,
-								UserAccountRules $accountRules) {
+		UserAccountRules $accountRules) {
 		$this->logger = $logger;
 		$this->accountRules = $accountRules;
 	}
@@ -42,14 +40,14 @@ class UserAccountChangeListener implements IEventListener {
 	protected function onChangeAccount(UserAccountChangeEvent $event) {
 		$claims = $event->getClaims();
 		$this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
-		
-        $evalResult = $this->accountRules->deriveAccountState($event->getUid(), $event->getDisplayName(), 
-                                                $event->getMainEmail(), null, $event->getQuota(), $claims);
-        if (!array_key_exists('redirect', $evalResult)) {
-            $event->setResult($evalResult['allowed'], $evalResult['reason']);
-        } else {
-            $event->setResult($evalResult['allowed'], $evalResult['reason'], $evalResult['redirect']);
-        }
-    }
+
+		$evalResult = $this->accountRules->deriveAccountState($event->getUid(), $event->getDisplayName(),
+			$event->getMainEmail(), $event->getQuota(), $claims);
+		if (!array_key_exists('redirect', $evalResult)) {
+			$event->setResult($evalResult['allowed'], $evalResult['reason']);
+		} else {
+			$event->setResult($evalResult['allowed'], $evalResult['reason'], $evalResult['redirect']);
+		}
+	}
 
 }

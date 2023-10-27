@@ -4,21 +4,21 @@ declare(strict_types=1);
 
 namespace OCA\NextMagentaCloudProvisioning\UnitTest;
 
-use OCP\ILogger;
-use OCP\IConfig;
-use OCP\IUserManager;
-use OCP\IServerContainer;
-use OCP\Accounts\IAccountManager;
-
-use PHPUnit\Framework\TestCase;
-
 use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
-
-use OCA\UserOIDC\Db\UserMapper;
-use OCA\UserOIDC\Db\ProviderMapper;
-
 use OCA\NextMagentaCloudProvisioning\Rules\UserAccountRules;
 use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
+use OCA\UserOIDC\Db\ProviderMapper;
+use OCA\UserOIDC\Db\UserMapper;
+use OCP\Accounts\IAccountManager;
+use OCP\IConfig;
+
+use OCP\IGroupManager;
+
+use OCP\ILogger;
+use OCP\IServerContainer;
+
+use OCP\IUserManager;
+use PHPUnit\Framework\TestCase;
 
 class UserWithdrawTest extends TestCase {
 	public function setUp(): void {
@@ -30,15 +30,16 @@ class UserWithdrawTest extends TestCase {
 									->setConstructorArgs([ $this->app->getContainer()->get(IUserManager::class),
 										$this->app->getContainer()->get(IAccountManager::class),
 										$this->app->getContainer()->get(IServerContainer::class),
-										$this->logger, 
-                                        $this->config,
+										$this->logger,
+										$this->config,
 										$this->app->getContainer()->get(UserMapper::class),
-										$this->app->getContainer()->get(ProviderMapper::class)])
+										$this->app->getContainer()->get(ProviderMapper::class),
+										$this->app->getContainer()->get(IGroupManager::class)])
 									->onlyMethods(['create', 'update'])
 									->getMock();
 		$this->accountService = new UserAccountRules($this->config,
-												$this->logger,
-												$this->userServiceMock);
+			$this->logger,
+			$this->userServiceMock);
 	}
 
 	public function testDeletionDateOidcClaims() {
@@ -90,11 +91,11 @@ class UserWithdrawTest extends TestCase {
 		$this->config->expects($this->once())
 					->method("setUserValue")
 					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-							$this->equalTo($expectedDeletionDate->getTimestamp()));
+						$this->equalTo($expectedDeletionDate->getTimestamp()));
 		$this->config->expects($this->once())
 					->method("getUserValue")
 					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-							$this->equalTo(null))
+						$this->equalTo(null))
 					->willReturn($expectedDeletionDate->getTimestamp());
 		
 		$deletionDate = $this->userServiceMock->markDeletion('12004901000000000XXXXXXX', $withdrawDate);
@@ -117,11 +118,11 @@ class UserWithdrawTest extends TestCase {
 		$this->config->expects($this->once())
 					->method("setUserValue")
 					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-							$this->equalTo($expectedDeletionDate->getTimestamp()));
+						$this->equalTo($expectedDeletionDate->getTimestamp()));
 		$this->config->expects($this->once())
 					->method("getUserValue")
 					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-							$this->equalTo(null))
+						$this->equalTo(null))
 					->willReturn($expectedDeletionDate->getTimestamp());
 		
 		$deletionDate = $this->userServiceMock->markDeletion('12004901000000000XXXXXXX', $withdrawDate);
@@ -139,7 +140,7 @@ class UserWithdrawTest extends TestCase {
 		$this->config->expects($this->once())
 					->method("getUserValue")
 					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-							$this->equalTo(null))
+						$this->equalTo(null))
 					->willReturn(null);
 
 		$deletionDate = $this->userServiceMock->unmarkDeletion('12004901000000000XXXXXXX');

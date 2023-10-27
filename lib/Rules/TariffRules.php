@@ -2,112 +2,103 @@
 
 namespace OCA\NextMagentaCloudProvisioning\Rules;
 
-use InvalidArgumentException;
 use OCA\NextMagentaCloudProvisioning\Logger\ProvisioningLogger;
-use OCA\NextMagentaCloudProvisioning\Service\GroupHelper;
 
-class TariffRules
-{
+/**
+ * The generic tariff rules evaluator
+ */
+class TariffRules {
 
-    private GroupHelper $groupHelper;
+	private GroupTariffMapping $groupTariffMapping;
 
-    /** @var ProvisioningLogger */
-    private ProvisioningLogger $provisioningLogger;
+	/** @var ProvisioningLogger */
+	private ProvisioningLogger $provisioningLogger;
 
-    private array $displaynameSearch = [
-        ['zusa', 'name'],
-        ['displayName'],
-        ['mainEmail'],
-        ['extmail'],
-        ['extMail'],
-        ['name'],
-    ];
 
-    public function __construct(GroupHelper $groupHelper, ProvisioningLogger $provisioningLogger)
-    {
-        $this->groupHelper = $groupHelper;
-        $this->provisioningLogger = $provisioningLogger;
-    }
+	public function __construct(GroupTariffMapping $groupTariffMapping, ProvisioningLogger $provisioningLogger) {
+		$this->groupTariffMapping = $groupTariffMapping;
+		$this->provisioningLogger = $provisioningLogger;
+	}
 
-    /**
-     * Central rule to derive displayname
-     * consistently from SAM/SLUP fields
-     */
-    public function deriveDisplayname(object $claims): ?string
-    {
-        $displayname = "";
-        foreach ($this->displaynameSearch as $search) {
-            foreach ($search as $field) {
-                $fieldSearch = 'urn:telekom.com:' . $field;
-                if (property_exists($claims, $fieldSearch)) {
-                    $displayname .= $claims->{$fieldSearch} . " ";
-                }
-            }
-            if (!empty($displayname)) {
-                break;
-            }
-        }
+	/**
+	 * Quota computation helper function to check
+	 * claims contain none of the configured flags
+	 *
+	 * For random combinations of tariffs where even one of
+	 * the flaged tariffs can be 0, the case must be explixitly checked
+	 * and cannot be used as default.
+	 */
+	private function quotaNoFlags(object $claims, $tariffs) {
+		$anyFlagSet = array_reduce($tariffs, function ($carry, $tariff) use ($claims) {
+			if (array_key_exists('flag', $tariff) && ($carry == false)) {
+				return $this->isQuotaFlagSet($claims, $tariff);
+			} else {
+				return $carry;
+			}
+		}, false);
 
-        if (empty($displayname)) {
-            $this->provisioningLogger->warning('Could not derive displayname from claims', ['claims' => $claims]);
-            return null;
-        }
+		if (!$anyFlagSet) {
+			// make sure that a quota >0 is only delivered
+			// for the NOFLAGS case if actually no flags are set
+			// Otherwise, all quotas < the NOFLAGS quota will not apply
+			return $tariffs['NOFLAGS']['space_limit'];
+		} else {
+			return "0 B";
+		}
+	}
 
-        return trim($displayname);
-    }
 
-    /**
-     * Central rule to derive quota
-     * consistently from SAM/SLUP fields
-     */
-    public function deriveQuota(object $rateFlat)
-    {
-        //Save the quota limit
-        $quotaLimit = [];
+	/**
+	 * Get the quota if a flag is set
+	 * The function does assume that the flag field exists
+	 */
+	private function isQuotaFlagSet(object $claims, $tariff) {
+		$flagname = $tariff['flag'];
+		if (property_exists($claims, $flagname) &&
+				$claims->{$flagname} === "1") {
+			return true;
+		} else {
+			return false;
+		}
+	}
 
-        //Check if the flag is set and add the quota limit array
-        foreach ($this->groupHelper->getGroupMapping() as $quotaGroup) {
-            if (property_exists($rateFlat, $quotaGroup['flag']) && $rateFlat->{$quotaGroup['flag']} == "1") {
-                $quotaLimit[] = $quotaGroup['space_limit'];
-            }
-        }
+	/**
+	 * Compute the maximum of two quotas given
+	 * Nextcloud human readable storage sizes
+	 */
+	private function maxQuota(string $left, string $right) {
+		$leftBytes = \OC_Helper::computerFileSize($left);
+		$rightBytes = \OC_Helper::computerFileSize($right);
+		if ($leftBytes > $rightBytes) {
+			return $left;
+		} else {
+			return $right;
+		}
+	}
 
-        //Check if no rate then return none
-        if (empty($quotaLimit)) {
-            $this->provisioningLogger->debug('No rate found, returning NONE');
-            return $this->groupHelper->getGroupMapping()["NONE"]['space_limit'];
-        }
+	/**
+	 * Central rule to derive quota
+	 * consistently from SAM/SLUP fields
+	 */
+	public function deriveQuota(object $claims) {
+		$tariffs = $this->groupTariffMapping->getGroupMapping();
 
-        $this->provisioningLogger->debug('Found quota', ['quotaLimit' => $quotaLimit]);
-        //Return the max quota limit
-        return $this->getMaxSize($quotaLimit);
-    }
+		// for each flag that is set: add the quota limit
+		$quotaCandidates = array_map(function ($tariff) use ($claims, $tariffs) {
+			if (array_key_exists('flag', $tariff)) {
+				return $this->isQuotaFlagSet($claims, $tariff) ? $tariff['space_limit'] : "0 B";
+			} else {
+				// skip the "no flags" case
+				// it is the deafult value of reduce
+				return "0 B";
+			}
+		}, $tariffs);
 
-    private function convertToBytes($size): float
-    {
-        $units = array('B' => 0, 'KB' => 1, 'MB' => 2, 'GB' => 3, 'TB' => 4);
-        $parts = explode(' ', $size);
-        $number = (float)$parts[0];
-        $unit = strtoupper(trim($parts[1]));
+		$noflagsQuota = $this->quotaNoFlags($claims, $tariffs);
+		$maxQuota = array_reduce($quotaCandidates, array($this, 'maxQuota'), $noflagsQuota);
 
-        if (!isset($units[$unit])) {
-            throw new InvalidArgumentException("Invalid size unit: $unit");
-        }
-
-        $bytes = $number * pow(1024, $units[$unit]);
-        return $bytes;
-    }
-
-    private function getMaxSize($sizes)
-    {
-        $maxSize = 0;
-
-        foreach ($sizes as $size) {
-            $bytes = $this->convertToBytes($size);
-            $maxSize = max($maxSize, $bytes);
-        }
-
-        return $maxSize;
-    }
-
+		// Return the max quota limit as human readable unit
+		// as it is standard in Nextcloud
+		return $maxQuota;
+	}
 }
