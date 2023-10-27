@@ -109,62 +109,6 @@ class UserAccountRules {
 		}
 	}
 
-    /**
-     * Find OpenId connect provider id case-insensitive by name.
-     */
-    public function findProviderByIdentifier(string $provider)
-    {
-        $providers = $this->oidcProviderMapper->getProviders();
-        foreach ($providers as $p) {
-            if ((strcasecmp($p->getIdentifier(), $provider) == 0) ||
-                (strcmp($p->id, $provider) == 0)) {
-                return $p->id;
-            }
-        }
-
-        throw new NotFoundException("No oidc provider " . $provider);
-    }
-
-    /**
-     * Imitate zhe userID computation from oidc app
-     * id4me is not used/supported yet.
-     */
-    protected function computeUserId(string $providerId, string $username, bool $id4me = false)
-    {
-        // old way with hashed names only:
-        //if ($id4me) {
-        //	return hash('sha256', $providerId . '_1_' . $username);
-        //} else {
-        //	return hash('sha256', $providerId . '_0_' . $username);
-        //}
-        if (strlen($username) > 64) {
-            return hash('sha256', $username);
-        } else {
-            return $username;
-        }
-    }
-
-    /**
-     * Find openid user entries based on username in id system or
-     * by the generic hash id used by NextCloud user_oidc
-     * with priority to the username in OpenID system.
-     * @return user object from manager
-     */
-    public function findUser(string $provider, string $username): IUser
-    {
-        $providerId = $this->findProviderByIdentifier($provider);
-        $oidcUserId = $this->computeUserId($providerId, $username);
-        $user = $this->userManager->get($oidcUserId);
-        if ($user === null) {
-            $user = $this->userManager->get($username);
-        }
-        if ($user === null) {
-            throw new NotFoundException("No user " . $username . ", id=" . $oidcUserId);
-        }
-
-        return $user;
-    }
-
 	/**
 	 *
 	 * You can adopt the redirect URLs for "Telekom erhalten" with:
@@ -177,8 +121,10 @@ class UserAccountRules {
                                        string $quota, object $claims, bool $create = true, $providerName = 'Telekom'): array
     {
 		$this->logger->info("PROV {$uid}: Check user existence");
+        $this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
+        $this->logger->debug("Provider: " . $providerName);
         //if ($this->nmcUserService->userExists($providerName, $uid)) {
-        if ($user = $this->findUser($providerName, $displayname)) {
+        if ($user = $this->nmcUserService->findUser($providerName, $uid)) {
 			$this->logger->info("PROV {$uid}: Modify existing");
             return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
 		} elseif($create) {
