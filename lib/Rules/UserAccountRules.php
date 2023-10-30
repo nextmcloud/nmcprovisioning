@@ -3,7 +3,6 @@
 namespace OCA\NextMagentaCloudProvisioning\Rules;
 
 use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
-use OCA\NextMagentaCloudProvisioning\User\NotFoundException;
 use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\User;
 use OCP\IConfig;
@@ -109,6 +108,21 @@ class UserAccountRules {
 		}
 	}
 
+    /**
+     * @param string $displayname
+     * @param string $testParam
+     * @return bool
+     */
+    public function isTestAccount(string $displayname, string $testParam = "-test", string $explodeParam = "@"): bool
+    {
+        $explode = (str_contains($explodeParam, $displayname)) ? explode($explodeParam, $displayname) : $displayname;
+        if (is_array($explode)) {
+            return str_contains($explode[0], $testParam);
+        } else {
+            return str_contains($explode, $testParam);
+        }
+    }
+
 	/**
 	 *
 	 * You can adopt the redirect URLs for "Telekom erhalten" with:
@@ -123,13 +137,18 @@ class UserAccountRules {
 		$this->logger->info("PROV {$uid}: Check user existence");
         $this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
         $this->logger->debug("Provider: " . $providerName);
+        $config = $this->config->getSystemValue('nmc_provisioning',[
+            'slup_test_account_check' => true,
+            'slup_test_account_name' => '-test',
+            'slup_test_account_explode' => '@'
+        ]);
         //if ($this->nmcUserService->userExists($providerName, $uid)) {
         if ($user = $this->nmcUserService->findUser($providerName, $uid)) {
 			$this->logger->info("PROV {$uid}: Modify existing");
             return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
-		} elseif($create) {
+        } elseif ($create || $config['slup_test_account_check'] &&
+            $this->isTestAccount($displayname,$config['slup_test_account_name'],$config['slup_test_account_explode'])) {
 			$this->logger->info("PROV {$uid}: Create");
-            //Check is -test before @ existing in mainmail
             return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $quota, $claims, $providerName);
 		}else{
             $this->logger->info("PROV {$uid}: No create");
