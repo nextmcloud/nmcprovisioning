@@ -137,7 +137,7 @@ class UserAccountRules {
 		$this->logger->info("PROV {$uid}: Check user existence");
         $this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
         $this->logger->debug("Provider: " . $providerName);
-        $config = $this->config->getSystemValue('nmc_provisioning',[
+        $config = $this->config->getSystemValue('nmc_provisioning', [
             'slup_test_account_check' => true,
             'slup_test_account_name' => '-test',
             'slup_test_account_explode' => '@'
@@ -152,7 +152,7 @@ class UserAccountRules {
             return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $quota, $claims, $providerName);
 		}else{
             $this->logger->info("PROV {$uid}: No create");
-            return array('allowed' => false, 'reason' => 'No create', 'changed' => false);
+            return array('allowed' => true, 'reason' => 'No create - please login with the user', 'changed' => true);
         }
 	}
 
