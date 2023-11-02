@@ -129,9 +129,14 @@ class NmcUserService {
 	/**
 	 * Check for OpenId user existence
 	 */
-	public function userExists(string $provider, string $username) {
+	public function userExists(string $provider, string $username, bool $returnUser = false) {
 		try {
 			$user = $this->findUser($provider, $username);
+
+            if ($returnUser){
+                return $user;
+            }
+
 			return true;
 		} catch (NotFoundException $eNotFound) {
 			return false;
