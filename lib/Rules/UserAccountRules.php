@@ -136,7 +136,7 @@ class UserAccountRules {
     {
 		$this->logger->info("PROV {$uid}: Check user existence");
         $this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
-        $this->logger->debug("Provider: " . $providerName);
+        $this->logger->debug("Provider {$uid}: " . $providerName);
         $config = $this->config->getSystemValue('nmc_provisioning', [
             'slup_test_account_check' => true,
             'slup_test_account_name' => '-test',

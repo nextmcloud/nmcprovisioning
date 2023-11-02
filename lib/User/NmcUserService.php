@@ -326,14 +326,14 @@ class NmcUserService {
     protected function updateUserSettings(IUser $user, string|null $email, string|null $quota, bool $enabled){
         if (!empty($email) &&
             strtolower($email) !== strtolower($user->getEMailAddress())) {
-            $this->logger->debug("PROV email");
+            $this->logger->debug("PROV email {$user->getUID()} old: {$user->getEMailAddress()} new: {$email}");
             $user->setEMailAddress($email);
         }
 
         //Its enough to check the string value from quota, the group mapping is matching with exact quota string
         if (!is_null($quota) &&
             $quota !== $user->getQuota()) {
-            $this->logger->debug("PROV quota");
+            $this->logger->debug("PROV quota {$user->getUID()} old: {$user->getQuota()} new: {$quota}");
             $user->setQuota($quota);
             $this->autoGroupMatch($user, $quota);
         }
@@ -348,7 +348,7 @@ class NmcUserService {
         //Check is displayname changed
         if (!is_null($displayname) &&
             $displayname !== $oidcUser->getDisplayName()) {
-            $this->logger->debug("PROV displayname");
+            $this->logger->debug("PROV displayname {$oidcUser->getUserId()} old: {$oidcUser->getDisplayName()} new: {$displayname}");
             $oidcUser->setDisplayName($displayname);
             $this->oidcUserMapper->update($oidcUser);
         }
