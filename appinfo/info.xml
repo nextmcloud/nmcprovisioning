@@ -26,5 +26,7 @@ as set of openid claim-like attributes</description>
 	<commands>
 		<command>OCA\NextMagentaCloudProvisioning\Command\CreateNewGroups</command>
 		<command>OCA\NextMagentaCloudProvisioning\Command\MigrateUserAutomatic</command>
+		<command>OCA\NextMagentaCloudProvisioning\Command\ManualUserProvisioning</command>
+
 	</commands>
 </info>
