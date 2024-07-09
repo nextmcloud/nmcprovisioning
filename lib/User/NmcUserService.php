@@ -133,9 +133,9 @@ class NmcUserService {
 		try {
 			$user = $this->findUser($provider, $username);
 
-            if ($returnUser){
-                return $user;
-            }
+			if ($returnUser) {
+				return $user;
+			}
 
 			return true;
 		} catch (NotFoundException $eNotFound) {
@@ -239,41 +239,39 @@ class NmcUserService {
 	/**
 	 * Encapsulation
 	 */
-    protected function createOidcUser(string $providerId, string $username, string $displayname)
-    {
+	protected function createOidcUser(string $providerId, string $username, string $displayname) {
 		// old way with hashed names only:
 		// return $this->oidcUserMapper->getOrCreate($providerId, $username);
 		$userId = $this->computeUserId($providerId, $username);
 		$user = new User();
 		$user->setUserId($userId);
-        $this->logger->debug("PROV displayname");
-        $user->setDisplayName($displayname);
+		$this->logger->debug("PROV displayname");
+		$user->setDisplayName($displayname);
 		return $this->oidcUserMapper->insert($user);
 	}
 
-    protected function createAccountUser(IUser $user, $email, string $quota, bool $enabled)
-    {
-        /*if ($altemail !== null) {
-              $this->logger->debug("PROV altemail");
-              $userAccount = $this->accountManager->getAccount($user);
-              $userAccount->setProperty(IAccountManager::PROPERTY_ADDRESS, $altemail,
-                  IAccountManager::SCOPE_PRIVATE, IAccountManager::VERIFIED);
-              $this->accountManager->updateAccount($userAccount);
-          }*/
+	protected function createAccountUser(IUser $user, $email, string $quota, bool $enabled) {
+		/*if ($altemail !== null) {
+			  $this->logger->debug("PROV altemail");
+			  $userAccount = $this->accountManager->getAccount($user);
+			  $userAccount->setProperty(IAccountManager::PROPERTY_ADDRESS, $altemail,
+				  IAccountManager::SCOPE_PRIVATE, IAccountManager::VERIFIED);
+			  $this->accountManager->updateAccount($userAccount);
+		  }*/
 
-        if ($email !== null) {
-            $this->logger->debug("PROV email");
-            $user->setEMailAddress($email);
-        }
+		if ($email !== null) {
+			$this->logger->debug("PROV email");
+			$user->setEMailAddress($email);
+		}
 
-        $this->logger->debug("PROV quota");
-        $user->setQuota($quota);
-        $this->autoGroupMatch($user, $quota);
-        $this->logger->debug("PROV enable");
-        $user->setEnabled($enabled);
-        /*$this->logger->debug("PROV migration flag");
-        $this->setMigrationFlag($user->getUID(), $migrated);*/
-    }
+		$this->logger->debug("PROV quota");
+		$user->setQuota($quota);
+		$this->autoGroupMatch($user, $quota);
+		$this->logger->debug("PROV enable");
+		$user->setEnabled($enabled);
+		/*$this->logger->debug("PROV migration flag");
+		$this->setMigrationFlag($user->getUID(), $migrated);*/
+	}
 
 
 	/**
@@ -290,94 +288,93 @@ class NmcUserService {
 			throw new UserExistException("OpenID user " . $provider . ":" . $username . " already exists!");
 		}*/
 
-        //Create oidc user
+		//Create oidc user
 		$this->logger->debug("PROV create db user");
-        $oidcUser = $this->createOidcUser($providerId, $username, $displayname);
+		$oidcUser = $this->createOidcUser($providerId, $username, $displayname);
 
-        //Create account user
+		//Create account user
 		$this->logger->debug("PROV standard account");
 		$user = $this->userManager->get($oidcUser->getUserId());
 		$this->logger->info("UserID: ".$oidcUser->getUserId());
-        $this->createAccountUser($user, $email, $quota, $enabled);
+		$this->createAccountUser($user, $email, $quota, $enabled);
 
-/*		try {
-			$this->logger->debug("PROV folder");
-            $this->serverc->get('UserFolder')->create($user->getUID());
-			$userFolder = $this->serverc->getUserFolder($user->getUID());
-			\OC::$server->getLogger()->debug('nmcuser_oidc: User folder created "' . $user->getUID() . '", exists=' . ($this->serverc->getRootFolder()->nodeExists('/' . $user->getUID() . '/files') ? 'true' : 'false'), ['app' => 'debug_create']);
+		/*		try {
+					$this->logger->debug("PROV folder");
+					$this->serverc->get('UserFolder')->create($user->getUID());
+					$userFolder = $this->serverc->getUserFolder($user->getUID());
+					\OC::$server->getLogger()->debug('nmcuser_oidc: User folder created "' . $user->getUID() . '", exists=' . ($this->serverc->getRootFolder()->nodeExists('/' . $user->getUID() . '/files') ? 'true' : 'false'), ['app' => 'debug_create']);
 
-			// Write a temporary file to the user home to make sure it is properly setup
-			// FIXME: Remove once the issue with the missing user directory on concurrent webdav requests are sorted out
-			$file = $userFolder->newFile('.userCreateTemp');
-			$file->delete();
+					// Write a temporary file to the user home to make sure it is properly setup
+					// FIXME: Remove once the issue with the missing user directory on concurrent webdav requests are sorted out
+					$file = $userFolder->newFile('.userCreateTemp');
+					$file->delete();
 
-			// copy skeleton
-			\OC_Util::copySkeleton($user->getUID(), $userFolder);
-		} catch (NotPermittedException $ex) {
-			\OC::$server->getLogger()->logException($ex, ['app' => 'nmcuser_oidc']);
-			throw new ForbiddenException("Newly created user cannot init home folder. Reason:\n" . $ex->getMessage());
-		}*/
+					// copy skeleton
+					\OC_Util::copySkeleton($user->getUID(), $userFolder);
+				} catch (NotPermittedException $ex) {
+					\OC::$server->getLogger()->logException($ex, ['app' => 'nmcuser_oidc']);
+					throw new ForbiddenException("Newly created user cannot init home folder. Reason:\n" . $ex->getMessage());
+				}*/
 
 		return [
 			'id' => $oidcUser->getUserId()
 		];
 	}
 
-    protected function updateUserSettings(IUser $user, string|null $email, string|null $quota, bool $enabled){
-        if (!empty($email) &&
-            strtolower($email) !== strtolower($user->getEMailAddress())) {
-            $this->logger->debug("PROV email {$user->getUID()} old: {$user->getEMailAddress()} new: {$email}");
-            $user->setEMailAddress($email);
-        }
+	protected function updateUserSettings(IUser $user, string|null $email, string|null $quota, bool $enabled) {
+		if (!empty($email) &&
+			strtolower($email) !== strtolower($user->getEMailAddress())) {
+			$this->logger->debug("PROV email {$user->getUID()} old: {$user->getEMailAddress()} new: {$email}");
+			$user->setEMailAddress($email);
+		}
 
-        //Its enough to check the string value from quota, the group mapping is matching with exact quota string
-        if (!is_null($quota) &&
-            $quota !== $user->getQuota()) {
-            $this->logger->debug("PROV quota {$user->getUID()} old: {$user->getQuota()} new: {$quota}");
-            $user->setQuota($quota);
-            $this->autoGroupMatch($user, $quota);
-        }
+		//Its enough to check the string value from quota, the group mapping is matching with exact quota string
+		if (!is_null($quota) &&
+			$quota !== $user->getQuota()) {
+			$this->logger->debug("PROV quota {$user->getUID()} old: {$user->getQuota()} new: {$quota}");
+			$user->setQuota($quota);
+			$this->autoGroupMatch($user, $quota);
+		}
 
-        if ($enabled !== $user->isEnabled()) {
-            $user->setEnabled($enabled);
-        }
-    }
+		if ($enabled !== $user->isEnabled()) {
+			$user->setEnabled($enabled);
+		}
+	}
 
-    protected function updateOidcUser(User $oidcUser, string|null $displayname)
-    {
-        //Check is displayname changed
-        if (!is_null($displayname) &&
-            $displayname !== $oidcUser->getDisplayName()) {
-            $this->logger->debug("PROV displayname {$oidcUser->getUserId()} old: {$oidcUser->getDisplayName()} new: {$displayname}");
-            $oidcUser->setDisplayName($displayname);
-            $this->oidcUserMapper->update($oidcUser);
-        }
-    }
+	protected function updateOidcUser(User $oidcUser, string|null $displayname) {
+		//Check is displayname changed
+		if (!is_null($displayname) &&
+			$displayname !== $oidcUser->getDisplayName()) {
+			$this->logger->debug("PROV displayname {$oidcUser->getUserId()} old: {$oidcUser->getDisplayName()} new: {$displayname}");
+			$oidcUser->setDisplayName($displayname);
+			$this->oidcUserMapper->update($oidcUser);
+		}
+	}
 
-    public function update(User|IUser $user,
+	public function update(User|IUser $user,
 		$displayname = null,
 		$email = null,
 		$quota = null,
 		bool   $enabled = null) {
 		$this->logger->debug("PROV standard account");
 		$oidcUser = $this->oidcUserMapper->getUser($user->getUID());
-//		$userAccount = $this->accountManager->getAccount($user);
+		//		$userAccount = $this->accountManager->getAccount($user);
 
-/*		if ($altemail !== null) {
-			$this->logger->debug("PROV altemail");
-			$userAccount->setProperty(IAccountManager::PROPERTY_ADDRESS, $altemail,
-				IAccountManager::SCOPE_PRIVATE, IAccountManager::VERIFIED);
-			$this->accountManager->updateAccount($userAccount);
-		}*/
+		/*		if ($altemail !== null) {
+					$this->logger->debug("PROV altemail");
+					$userAccount->setProperty(IAccountManager::PROPERTY_ADDRESS, $altemail,
+						IAccountManager::SCOPE_PRIVATE, IAccountManager::VERIFIED);
+					$this->accountManager->updateAccount($userAccount);
+				}*/
 
-/*		if ($migrated !== null) {
-			$this->logger->debug("PROV migration flag");
-			$this->setMigrationFlag($user->getUID(), $migrated);
-		}*/
+		/*		if ($migrated !== null) {
+					$this->logger->debug("PROV migration flag");
+					$this->setMigrationFlag($user->getUID(), $migrated);
+				}*/
 
-        $this->updateOidcUser($oidcUser, $displayname);
+		$this->updateOidcUser($oidcUser, $displayname);
 
-        $this->updateUserSettings($user, $email, $quota, $enabled);
+		$this->updateUserSettings($user, $email, $quota, $enabled);
 
 		$this->logger->debug("PROV read state");
 		$userState = [

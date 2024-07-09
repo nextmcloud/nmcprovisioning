@@ -65,7 +65,9 @@ class UserAccountDeletionJob extends TimedJob {
 		foreach ($expiredUids as $uid) {
 			try {
 				$user = $this->userManager->get($uid);
+				$this->logger->info("Deleting " . $uid);
 				$user->delete();
+				$this->logger->info(\count($uid) . " deleted");
 			} catch (\Throwable $e) {
 				$this->logger->logException($e, [
 					'message' => $uid . ': Deletion failed with ' . $e->getMessage(),

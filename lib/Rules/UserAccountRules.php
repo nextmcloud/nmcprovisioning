@@ -21,24 +21,23 @@ class UserAccountRules {
 	/** @var NmcUserService */
 	private $nmcUserService;
 
-    /** @var IUserManager */
-    private $userManager;
+	/** @var IUserManager */
+	private $userManager;
 
-    /** @var ProviderMapper */
-    private $oidcProviderMapper;
+	/** @var ProviderMapper */
+	private $oidcProviderMapper;
 
 	public function __construct(IConfig $config,
-                                ILogger        $logger,
-                                NmcUserService $nmcUserService,
-                                IUserManager   $userManager,
-                                ProviderMapper $oidcProviderMapper)
-    {
+		ILogger        $logger,
+		NmcUserService $nmcUserService,
+		IUserManager   $userManager,
+		ProviderMapper $oidcProviderMapper) {
 		$this->config = $config;
 		$this->logger = $logger;
 		$this->nmcUserService = $nmcUserService;
-        $this->userManager = $userManager;
-        $this->oidcProviderMapper = $oidcProviderMapper;
-    }
+		$this->userManager = $userManager;
+		$this->oidcProviderMapper = $oidcProviderMapper;
+	}
 
 	/**
 	 * Check whether NextMagentaCloud product is booked on customer.
@@ -108,20 +107,19 @@ class UserAccountRules {
 		}
 	}
 
-    /**
-     * @param string $displayname
-     * @param string $testParam
-     * @return bool
-     */
-    public function isTestAccount(string $displayname, string $testParam = "-test", string $explodeParam = "@"): bool
-    {
-        $explode = (str_contains($explodeParam, $displayname)) ? explode($explodeParam, $displayname) : $displayname;
-        if (is_array($explode)) {
-            return str_contains($explode[0], $testParam);
-        } else {
-            return str_contains($explode, $testParam);
-        }
-    }
+	/**
+	 * @param string $displayname
+	 * @param string $testParam
+	 * @return bool
+	 */
+	public function isTestAccount(string $displayname, string $testParam = "-test", string $explodeParam = "@"): bool {
+		$explode = (str_contains($explodeParam, $displayname)) ? explode($explodeParam, $displayname) : $displayname;
+		if (is_array($explode)) {
+			return str_contains($explode[0], $testParam);
+		} else {
+			return str_contains($explode, $testParam);
+		}
+	}
 
 	/**
 	 *
@@ -132,27 +130,26 @@ class UserAccountRules {
 	 * `sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userratesurl --value "https://cloud.telekom-dienste.de/tarife"`
 	 */
 	public function deriveAccountState(string $uid, ?string $displayname, ?string $mainEmail,
-                                       string $quota, object $claims, bool $create = true, $providerName = 'Telekom'): array
-    {
+		string $quota, object $claims, bool $create = true, $providerName = 'Telekom'): array {
 		$this->logger->info("PROV {$uid}: Check user existence");
-        $this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
-        $this->logger->debug("Provider {$uid}: " . $providerName);
-        $config = $this->config->getSystemValue('nmc_provisioning', [
-            'slup_test_account_check' => true,
-            'slup_test_account_name' => '-test',
-            'slup_test_account_explode' => '@'
-        ]);
-        if ($user = $this->nmcUserService->userExists($providerName, $uid, true)) {
+		$this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
+		$this->logger->debug("Provider {$uid}: " . $providerName);
+		$config = $this->config->getSystemValue('nmc_provisioning', [
+			'slup_test_account_check' => true,
+			'slup_test_account_name' => '-test',
+			'slup_test_account_explode' => '@'
+		]);
+		if ($user = $this->nmcUserService->userExists($providerName, $uid, true)) {
 			$this->logger->info("PROV {$uid}: Modify existing");
-            return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
-        } elseif ($create || $config['slup_test_account_check'] &&
-            $this->isTestAccount($displayname,$config['slup_test_account_name'],$config['slup_test_account_explode'])) {
+			return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
+		} elseif ($create || $config['slup_test_account_check'] &&
+			$this->isTestAccount($displayname, $config['slup_test_account_name'], $config['slup_test_account_explode'])) {
 			$this->logger->info("PROV {$uid}: Create");
-            return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $quota, $claims, $providerName);
-		}else{
-            $this->logger->info("PROV {$uid}: No create");
-            return array('allowed' => true, 'reason' => 'No create - please login with the user', 'changed' => true);
-        }
+			return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $quota, $claims, $providerName);
+		} else {
+			$this->logger->info("PROV {$uid}: No create");
+			return array('allowed' => true, 'reason' => 'No create - please login with the user', 'changed' => true);
+		}
 	}
 
 	/**
@@ -161,7 +158,7 @@ class UserAccountRules {
 	 * In many negative cases, no user account is created at all.
 	 */
 	protected function deriveNewAccountState(string $uid, ?string $displayname, ?string $mainEmail,
-                                             string     $quota, object $claims, $providerName) : array {
+		string     $quota, object $claims, $providerName) : array {
 		if (is_null($displayname)) {
 			$this->logger->error("{$uid}: New user without displayName");
 			return array('allowed' => false, 'reason' => 'No displayname no new account', 'changed' => false);
@@ -180,7 +177,7 @@ class UserAccountRules {
 			return array('allowed' => false, 'reason' => 'No tariff no new account', 'changed' => false, 'redirect' => $withdrawUrl);
 		}
 
-        $this->nmcUserService->create($providerName, $uid, $displayname, $mainEmail, $quota);
+		$this->nmcUserService->create($providerName, $uid, $displayname, $mainEmail, $quota);
 		$this->logger->info("{$uid}: New user created");
 		return array('allowed' => true, 'reason' => 'Created', 'changed' => true);
 	}
@@ -212,7 +209,7 @@ class UserAccountRules {
 
 			// update case
 			// user is active and gets update
-            //TODO Check is update required????
+			//TODO Check is update required????
 			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, true);
 			return array('allowed' => true, 'reason' => 'Updated', 'changed' => true);
 		} else {
