@@ -45,14 +45,14 @@ class UserQueries {
 	 */
 	public function findDeletions(\DateTime $refDate, $limit = null, $offset = null): array {
 		$refTs = $refDate->getTimestamp();
-		
+
 		$qb = $this->db->getQueryBuilder();
-		//->andWhere($qb->expr()->lt('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT), IQueryBuilder::PARAM_INT))
 		$qb->select('userid')
 			->from('preferences')
 			->where($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
 			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
 			->andWhere($qb->expr()->lt('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT)))
+			->orderBy('configvalue', 'ASC') // oldest first
 			->setMaxResults($limit)
 			->setFirstResult($offset);
 
