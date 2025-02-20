@@ -8,14 +8,12 @@ use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
 use OCA\NextMagentaCloudProvisioning\Db\UserQueries;
 use OCA\NextMagentaCloudProvisioning\User\UserAccountDeletionJob;
 use OCP\AppFramework\Utility\ITimeFactory;
-
 use OCP\IConfig;
-
 use OCP\ILogger;
 use OCP\IUser;
-
 use OCP\IUserManager;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 class UserAccountDeletionJobTest extends TestCase {
 	public function setUp(): void {
@@ -25,7 +23,7 @@ class UserAccountDeletionJobTest extends TestCase {
 		$this->userQueries = $this->createMock(UserQueries::class);
 		$this->userManager = $this->getMockForAbstractClass(IUserManager::class);
 		$this->job = new UserAccountDeletionJob($this->app->getContainer()->get(ITimeFactory::class),
-			$this->app->getContainer()->get(ILogger::class),
+			$this->app->getContainer()->get(LoggerInterface::class),
 			$this->config,
 			$this->userQueries,
 			$this->userManager);
@@ -51,7 +49,7 @@ class UserAccountDeletionJobTest extends TestCase {
 	//         ->with($this->equalTo('nmcprovisioning'), $this->equalTo('deletionjobtime'))
 	//         ->willReturn('05:00:00');
 
-	//     $refTime = new \DateTime("11:23:33");
+	//     $refTime = new \DateTime("11:23:33");Mura
 	//     $interval = $this->job->computeDestinationInterval($refTime);
 	//     $this->assertEquals(27 + 36*60 + 17*3600 , $interval);
 		
