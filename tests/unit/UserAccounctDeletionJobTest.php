@@ -9,7 +9,6 @@ use OCA\NextMagentaCloudProvisioning\Db\UserQueries;
 use OCA\NextMagentaCloudProvisioning\User\UserAccountDeletionJob;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IConfig;
-use OCP\ILogger;
 use OCP\IUser;
 use OCP\IUserManager;
 use PHPUnit\Framework\TestCase;
