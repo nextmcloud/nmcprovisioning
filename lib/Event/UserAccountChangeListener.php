@@ -3,24 +3,21 @@
 namespace OCA\NextMagentaCloudProvisioning\Event;
 
 use OCA\NextMagentaCloudProvisioning\Rules\UserAccountRules;
-
 use OCA\UserOIDC\Event\UserAccountChangeEvent;
 use OCP\EventDispatcher\Event;
-
 use OCP\EventDispatcher\IEventListener;
-
-use OCP\ILogger;
+use Psr\Log\LoggerInterface;
 
 class UserAccountChangeListener implements IEventListener {
 
-	/** @var ILogger */
+	/** @var LoggerInterface */
 	private $logger;
 
 	/** @var UserAccountRules */
 	private $accountRules;
 
 
-	public function __construct(ILogger $logger,
+	public function __construct(LoggerInterface $logger,
 		UserAccountRules $accountRules) {
 		$this->logger = $logger;
 		$this->accountRules = $accountRules;

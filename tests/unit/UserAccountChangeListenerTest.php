@@ -9,29 +9,26 @@ use OCA\NextMagentaCloudProvisioning\Event\UserAccountChangeListener;
 use OCA\NextMagentaCloudProvisioning\Rules\UserAccountRules;
 use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
 use OCA\UserOIDC\Db\ProviderMapper;
-
 use OCA\UserOIDC\Db\UserMapper;
-
 use OCA\UserOIDC\Event\UserAccountChangeEvent;
 use OCP\Accounts\IAccountManager;
 use OCP\IConfig;
 use OCP\IGroupManager;
-use OCP\ILogger;
-
-use OCP\IServerContainer;
 use OCP\IUserManager;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 class UserAccountChangeListenerTest extends TestCase {
 	public function setUp(): void {
 		parent::setUp();
 		$this->app = new \OCP\AppFramework\App(Application::APP_ID);
 		$this->config = $this->getMockForAbstractClass(IConfig::class);
-		$this->logger = $this->app->getContainer()->get(ILogger::class);
+		$this->logger = $this->app->getContainer()->get(LoggerInterface::class);
+		$this->userManager = $this->getMockForAbstractClass(IUserManager::class);
+		$this->oidcProviderMapper = $this->app->getContainer()->get(ProviderMapper::class);
 		$this->userService = $this->getMockBuilder(NmcUserService::class)
 									->setConstructorArgs([ $this->app->getContainer()->get(IUserManager::class),
 										$this->app->getContainer()->get(IAccountManager::class),
-										$this->app->getContainer()->get(IServerContainer::class),
 										$this->logger,
 										$this->config,
 										$this->app->getContainer()->get(UserMapper::class),
@@ -41,7 +38,9 @@ class UserAccountChangeListenerTest extends TestCase {
 									->getMock();
 		$this->accountRules = new UserAccountRules($this->config,
 			$this->logger,
-			$this->userService);
+			$this->userService,
+			$this->userManager,
+			$this->oidcProviderMapper);
 		$this->listener = new UserAccountChangeListener($this->logger, $this->accountRules);
 
 		$this->config->expects($this->any())

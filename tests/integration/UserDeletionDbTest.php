@@ -11,14 +11,9 @@ use OCA\NextMagentaCloudProvisioning\TestHelper\StackedCleanupTestCase;
 use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
 use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\UserMapper;
-
-
 use OCP\Accounts\IAccountManager;
-
 use OCP\IConfig;
 use OCP\ILogger;
-
-use OCP\IServerContainer;
 use OCP\IUserManager;
 
 class UserDeletionDbTest extends StackedCleanupTestCase {
@@ -40,7 +35,6 @@ class UserDeletionDbTest extends StackedCleanupTestCase {
 		$this->userServiceMock = $this->getMockBuilder(NmcUserService::class)
 									->setConstructorArgs([ $this->app->getContainer()->get(IUserManager::class),
 										$this->app->getContainer()->get(IAccountManager::class),
-										$this->app->getContainer()->get(IServerContainer::class),
 										$this->config,
 										$this->app->getContainer()->get(UserMapper::class),
 										$this->app->getContainer()->get(ProviderMapper::class)])

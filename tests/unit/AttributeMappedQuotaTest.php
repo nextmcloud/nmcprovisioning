@@ -5,18 +5,14 @@ declare(strict_types=1);
 namespace OCA\NextMagentaCloudProvisioning\UnitTest;
 
 use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
-
 use OCA\NextMagentaCloudProvisioning\Event\UserAttributeListener;
 use OCA\NextMagentaCloudProvisioning\Rules\DisplaynameRules;
-
 use OCA\NextMagentaCloudProvisioning\Rules\TariffRules;
 use OCA\UserOIDC\Event\AttributeMappedEvent;
 use OCA\UserOIDC\Service\ProviderService;
-
 use OCP\AppFramework\App;
-use OCP\ILogger;
-
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 class AttributeMappedQuotaTest extends TestCase {
 	public const DEMO_CLAIM = <<<JSON
@@ -40,7 +36,7 @@ class AttributeMappedQuotaTest extends TestCase {
 	public function setUp(): void {
 		parent::setUp();
 		$app = new App(Application::APP_ID);
-		$this->listener = new UserAttributeListener($app->getContainer()->get(ILogger::class),
+		$this->listener = new UserAttributeListener($app->getContainer()->get(LoggerInterface::class),
 			$app->getContainer()->get(TariffRules::class),
 			$app->getContainer()->get(DisplaynameRules::class));
 	}

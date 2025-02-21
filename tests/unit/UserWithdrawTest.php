@@ -11,25 +11,22 @@ use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\UserMapper;
 use OCP\Accounts\IAccountManager;
 use OCP\IConfig;
-
 use OCP\IGroupManager;
-
-use OCP\ILogger;
-use OCP\IServerContainer;
-
 use OCP\IUserManager;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 class UserWithdrawTest extends TestCase {
 	public function setUp(): void {
 		parent::setUp();
 		$this->app = new \OCP\AppFramework\App(Application::APP_ID);
 		$this->config = $this->getMockForAbstractClass(IConfig::class);
-		$this->logger = $this->app->getContainer()->get(ILogger::class);
+		$this->logger = $this->app->getContainer()->get(LoggerInterface::class);
+		$this->userManager = $this->getMockForAbstractClass(IUserManager::class);
+		$this->oidcProviderMapper = $this->app->getContainer()->get(ProviderMapper::class);
 		$this->userServiceMock = $this->getMockBuilder(NmcUserService::class)
 									->setConstructorArgs([ $this->app->getContainer()->get(IUserManager::class),
 										$this->app->getContainer()->get(IAccountManager::class),
-										$this->app->getContainer()->get(IServerContainer::class),
 										$this->logger,
 										$this->config,
 										$this->app->getContainer()->get(UserMapper::class),
@@ -39,7 +36,9 @@ class UserWithdrawTest extends TestCase {
 									->getMock();
 		$this->accountService = new UserAccountRules($this->config,
 			$this->logger,
-			$this->userServiceMock);
+			$this->userServiceMock,
+			$this->userManager,
+			$this->oidcProviderMapper);
 	}
 
 	public function testDeletionDateOidcClaims() {

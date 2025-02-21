@@ -6,13 +6,13 @@ use OCA\NextMagentaCloudProvisioning\User\NmcUserService;
 use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\User;
 use OCP\IConfig;
-use OCP\ILogger;
 use OCP\IUser;
 use OCP\IUserManager;
+use Psr\Log\LoggerInterface;
 
 class UserAccountRules {
 
-	/** @var ILogger */
+	/** @var LoggerInterface */
 	private $logger;
 
 	/** @var IConfig */
@@ -28,7 +28,7 @@ class UserAccountRules {
 	private $oidcProviderMapper;
 
 	public function __construct(IConfig $config,
-		ILogger        $logger,
+		LoggerInterface $logger,
 		NmcUserService $nmcUserService,
 		IUserManager   $userManager,
 		ProviderMapper $oidcProviderMapper) {
@@ -139,7 +139,8 @@ class UserAccountRules {
 			'slup_test_account_name' => '-test',
 			'slup_test_account_explode' => '@'
 		]);
-		if ($user = $this->nmcUserService->userExists($providerName, $uid, true)) {
+		$user = $this->nmcUserService->userExists($providerName, $uid, true);
+		if ($user instanceof OCA\UserOIDC\Db\User || $user instanceof OCP\IUser) {
 			$this->logger->info("PROV {$uid}: Modify existing");
 			return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
 		} elseif ($create || $config['slup_test_account_check'] &&
