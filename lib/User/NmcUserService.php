@@ -13,11 +13,10 @@ use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Db\MultipleObjectsReturnedException;
 use OCP\IConfig;
 use OCP\IGroupManager;
-use OCP\ILogger;
-use OCP\IServerContainer;
 use OCP\IUser;
 use OCP\IUserManager;
 use OCP\Security\ISecureRandom;
+use Psr\Log\LoggerInterface;
 
 // classes from user_oidc app
 
@@ -29,10 +28,7 @@ class NmcUserService {
 	/** @var IAccountManager */
 	private $accountManager;
 
-	/** @var IServerContainer */
-	private $serverc;
-
-	/** @var ILogger */
+	/** @var LoggerInterface */
 	private $logger;
 
 	/** @var IConfig */
@@ -56,8 +52,7 @@ class NmcUserService {
 
 	public function __construct(IUserManager     $userManager,
 		IAccountManager  $accountManager,
-		IServerContainer $serverContainer,
-		ILogger          $logger,
+		LoggerInterface  $logger,
 		IConfig          $config,
 		UserMapper       $oidcUserMapper,
 		ProviderMapper   $oidcProviderMapper,
@@ -65,7 +60,6 @@ class NmcUserService {
 		$this->groupTariffMapping = new GroupTariffMapping($config);
 		$this->userManager = $userManager;
 		$this->accountManager = $accountManager;
-		$this->serverc = $serverContainer;
 		$this->logger = $logger;
 		$this->config = $config;
 		$this->oidcUserMapper = $oidcUserMapper;
@@ -139,7 +133,7 @@ class NmcUserService {
 
 			return true;
 		} catch (NotFoundException $eNotFound) {
-			return false;
+			return $returnUser ? null : false;
 		}
 	}
 
@@ -297,24 +291,6 @@ class NmcUserService {
 		$user = $this->userManager->get($oidcUser->getUserId());
 		$this->logger->info("UserID: ".$oidcUser->getUserId());
 		$this->createAccountUser($user, $email, $quota, $enabled);
-
-		/*		try {
-					$this->logger->debug("PROV folder");
-					$this->serverc->get('UserFolder')->create($user->getUID());
-					$userFolder = $this->serverc->getUserFolder($user->getUID());
-					\OC::$server->getLogger()->debug('nmcuser_oidc: User folder created "' . $user->getUID() . '", exists=' . ($this->serverc->getRootFolder()->nodeExists('/' . $user->getUID() . '/files') ? 'true' : 'false'), ['app' => 'debug_create']);
-
-					// Write a temporary file to the user home to make sure it is properly setup
-					// FIXME: Remove once the issue with the missing user directory on concurrent webdav requests are sorted out
-					$file = $userFolder->newFile('.userCreateTemp');
-					$file->delete();
-
-					// copy skeleton
-					\OC_Util::copySkeleton($user->getUID(), $userFolder);
-				} catch (NotPermittedException $ex) {
-					\OC::$server->getLogger()->logException($ex, ['app' => 'nmcuser_oidc']);
-					throw new ForbiddenException("Newly created user cannot init home folder. Reason:\n" . $ex->getMessage());
-				}*/
 
 		return [
 			'id' => $oidcUser->getUserId()

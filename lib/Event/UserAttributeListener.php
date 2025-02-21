@@ -4,18 +4,15 @@ namespace OCA\NextMagentaCloudProvisioning\Event;
 
 use OCA\NextMagentaCloudProvisioning\Rules\DisplaynameRules;
 use OCA\NextMagentaCloudProvisioning\Rules\TariffRules;
-
 use OCA\UserOIDC\Event\AttributeMappedEvent;
 use OCA\UserOIDC\Service\ProviderService;
-
 use OCP\EventDispatcher\Event;
-
 use OCP\EventDispatcher\IEventListener;
-use OCP\ILogger;
+use Psr\Log\LoggerInterface;
 
 class UserAttributeListener implements IEventListener {
 
-	/** @var ILogger */
+	/** @var LoggerInterface */
 	private $logger;
 
 	/** @var TariffRules */
@@ -25,7 +22,7 @@ class UserAttributeListener implements IEventListener {
 	private $displaynameRules;
 
 
-	public function __construct(ILogger $logger,
+	public function __construct(LoggerInterface $logger,
 		TariffRules $tariffRules,
 		DisplaynameRules $displaynameRules) {
 		$this->logger = $logger;
