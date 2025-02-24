@@ -139,8 +139,7 @@ class UserAccountRules {
 			'slup_test_account_name' => '-test',
 			'slup_test_account_explode' => '@'
 		]);
-		$user = $this->nmcUserService->userExists($providerName, $uid, true);
-		if ($user instanceof OCA\UserOIDC\Db\User || $user instanceof OCP\IUser) {
+		if ($user = $this->nmcUserService->userExists($providerName, $uid, true)) {
 			$this->logger->info("PROV {$uid}: Modify existing");
 			return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
 		} elseif ($create || $config['slup_test_account_check'] &&
