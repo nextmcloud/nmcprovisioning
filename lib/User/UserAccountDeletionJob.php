@@ -66,7 +66,11 @@ class UserAccountDeletionJob extends TimedJob {
 				try {
 					$user = $this->userManager->get($uid);
 					if (!$user) {
-						$this->logger->warning("User $uid not found, skipping.");
+						$this->logger->warning("User $uid not found, removing deletion entry and cleaning up.");
+
+						// Call deleteUserPreferenceById to ensure cleanup
+						$this->userQueries->deleteUserPreferenceById($uid);
+
 						continue;
 					}
 	
