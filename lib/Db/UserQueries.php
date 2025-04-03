@@ -75,4 +75,20 @@ class UserQueries {
 		$result->closeCursor();
 		return $column;
 	}
+
+	/**
+	 * Delete a user preference by their user ID
+	 *
+	 * @param string $userId
+	 * @return bool True if deletion was successful, false otherwise
+	 */
+	public function deleteUserPreferenceById(string $userId): bool {
+		$qb = $this->db->getQueryBuilder();
+		
+		$qb->delete('preferences')
+		->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+		->execute();
+
+		return true; // Return true to indicate successful deletion
+	}
 }
