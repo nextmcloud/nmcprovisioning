@@ -67,8 +67,8 @@ class TariffRules {
 	 * Nextcloud human readable storage sizes
 	 */
 	private function maxQuota(string $left, string $right) {
-		$leftBytes = \OC_Helper::computerFileSize($left);
-		$rightBytes = \OC_Helper::computerFileSize($right);
+		$leftBytes = \OCP\Util::computerFileSize($left);
+		$rightBytes = \OCP\Util::computerFileSize($right);
 		if ($leftBytes > $rightBytes) {
 			return $left;
 		} else {
