@@ -13,8 +13,8 @@ use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\UserMapper;
 use OCP\Accounts\IAccountManager;
 use OCP\IConfig;
-use OCP\ILogger;
 use OCP\IUserManager;
+use Psr\Log\LoggerInterface;
 
 class UserDeletionDbTest extends StackedCleanupTestCase {
 	public function setUp(): void {
@@ -31,7 +31,7 @@ class UserDeletionDbTest extends StackedCleanupTestCase {
 		//$this->config->setSystemValue('datadirectory', '/var/www/html/data');
 		//$this->config->setSystemValue('dbtype', 'sqlite3');
 
-		$this->logger = $this->app->getContainer()->get(ILogger::class);
+		$this->logger = $this->app->getContainer()->get(LoggerInterface::class);
 		$this->userServiceMock = $this->getMockBuilder(NmcUserService::class)
 									->setConstructorArgs([ $this->app->getContainer()->get(IUserManager::class),
 										$this->app->getContainer()->get(IAccountManager::class),

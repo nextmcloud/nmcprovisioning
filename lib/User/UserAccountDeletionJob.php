@@ -5,7 +5,6 @@ namespace OCA\NextMagentaCloudProvisioning\User;
 use OCA\NextMagentaCloudProvisioning\Db\UserQueries;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
-use OCP\ILogger;
 use OCP\IUserManager;
 use Psr\Log\LoggerInterface;
 
@@ -92,7 +91,7 @@ class UserAccountDeletionJob extends TimedJob {
 				} catch (\Throwable $e) {
 					$this->logger->logException($e, [
 						'message' => "Deletion failed for $uid: " . $e->getMessage(),
-						'level' => ILogger::ERROR,
+						'level' => 3,
 						'app' => 'nmcprovisioning'
 					]);
 					continue; // jump to the next user in case of errors
