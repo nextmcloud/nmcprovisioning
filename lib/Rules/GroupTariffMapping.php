@@ -48,6 +48,12 @@ class GroupTariffMapping {
 			'space_limit' => '25 GB',
 			'old_group' => 'S25',
 		],
+		'FREE1' => array(
+			'name' => 'FREE1',
+			'space_limit' => '1 GB',
+			'flag' => 'urn:telekom.com:f859',
+			'old_group' => 'FREE1',
+		),
 		'FREE3' => [
 			'name' => 'FREE3',
 			'space_limit' => '3 GB',
@@ -60,6 +66,15 @@ class GroupTariffMapping {
 			'flag' => 'urn:telekom.com:f460',
 			'old_group' => 'FREE10',
 		],
+		'S5' => array(
+			'name' => 'S5',
+			'space_limit' => '5 GB',
+			'old_group' => 'S5',
+			'old_quota' => '5',
+			'search_range' => '1',
+			'ready_only' => true,
+			'flag' => 'urn:telekom.com:f858',
+		),
 		'S15' => [
 			'name' => 'S15',
 			'space_limit' => '15 GB',
@@ -128,6 +143,4 @@ class GroupTariffMapping {
 	public function getGroupMapping(): array {
 		return $this->iConfig->getSystemValue('nmc_provisioning_groupMapping', $this->groupMapping);
 	}
-
-
 }

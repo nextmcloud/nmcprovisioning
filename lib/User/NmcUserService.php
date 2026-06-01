@@ -164,7 +164,16 @@ class NmcUserService {
 		$deletionDate = clone $withdrawTime;
 		$retention = new \DateInterval($this->config->getAppValue('nmcprovisioning', 'userretention', "P60D"));
 		$deletionDate->add($retention);
+
+		$this->logger->info('Marking user for delayed deletion', [
+			'userId' => $userId,
+			'withdrawTime' => $withdrawTime->format(\DateTimeInterface::ATOM),
+			'deletionDate' => $deletionDate->format(\DateTimeInterface::ATOM),
+			'retention' => $this->config->getAppValue('nmcprovisioning', 'userretention', "P60D"),
+		]);
+
 		$this->config->setUserValue($userId, Application::APP_ID, 'deletion', $deletionDate->getTimestamp());
+
 		return $deletionDate;
 	}
 
