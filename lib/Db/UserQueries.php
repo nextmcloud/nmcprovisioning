@@ -41,9 +41,9 @@ class UserQueries {
 
 	/**
 	 * Find all users marked for deletion with a deletion date
-	 * before $refDate
+	 * before $refDate.
 	 */
-	public function findDeletions(\DateTime $refDate, $limit = null, $offset = null): array {
+	public function findDeletions(\DateTime $refDate, ?int $limit = null): array {
 		$refTs = $refDate->getTimestamp();
 
 		$qb = $this->db->getQueryBuilder();
@@ -52,16 +52,46 @@ class UserQueries {
 			->where($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
 			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
 			->andWhere($qb->expr()->lt('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT)))
-			->orderBy('configvalue', 'ASC') // oldest first
-			->setMaxResults($limit)
-			->setFirstResult($offset);
+			->orderBy('configvalue', 'ASC');
+
+		if ($limit !== null) {
+			$qb->setMaxResults($limit);
+		}
 
 		$result = $qb->execute();
+
 		$uids = [];
 		while ($row = $result->fetch()) {
-			\array_push($uids, (string)$row['userid']);
+			$uids[] = (string)$row['userid'];
 		}
+
+		$result->closeCursor();
+
 		return $uids;
+	}
+
+	public function getDeletionDateTime(string $userId): ?\DateTime {
+		$qb = $this->db->getQueryBuilder();
+
+		$qb->select('configvalue')
+			->from('preferences')
+			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
+			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
+			->setMaxResults(1);
+
+		$result = $qb->execute();
+		$value = $result->fetchOne();
+		$result->closeCursor();
+
+		if ($value === false || $value === null || $value === '') {
+			return null;
+		}
+
+		$deletionDate = new \DateTime();
+		$deletionDate->setTimestamp((int)$value);
+
+		return $deletionDate;
 	}
 
 	public function countMigrated(): int {
@@ -70,7 +100,7 @@ class UserQueries {
 			->from("preferences")
 			->where($qb->expr()->eq('appid', $qb->createNamedParameter('nmcuser_oidc')))
 			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('migrated')));
-		$result = $query->execute();
+		$result = $qb->execute();
 		$column = (int)$result->fetchOne();
 		$result->closeCursor();
 		return $column;

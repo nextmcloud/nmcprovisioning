@@ -20,10 +20,12 @@ class UserAccountDeletionJob extends TimedJob {
 	/** @var IUserManager */
 	private $userManager;
 
-	public function __construct(ITimeFactory $timeFactory,
+	public function __construct(
+		ITimeFactory $timeFactory,
 		LoggerInterface $logger,
 		UserQueries $userQueries,
-		IUserManager $userManager) {
+		IUserManager $userManager
+	) {
 		parent::__construct($timeFactory);
 		$this->logger = $logger;
 		$this->userQueries = $userQueries;
@@ -35,72 +37,79 @@ class UserAccountDeletionJob extends TimedJob {
 	}
 
 	public function run($arguments) {
-		$this->logger->info("User account deletion job started");
-	
-		$startTime = time(); // start time of job
-		$maxExecutionTime = 10800; // max. job time (3 hours)
-		$maxDeletionTimePerUser = 1800; // max. time per user (30 minutes)
+		$this->logger->info('User account deletion job started');
 
-		$refTime = new \DateTime(); // find deletions older than current time
-		$limit = 10; // number of users per batch
-		$offset = 0; // start offset
-	
+		$startTime = time();
+		$maxExecutionTime = 10800; // 3 hours
+		$maxDeletionTimePerUser = 1800; // 30 minutes
+
+		$limit = 10;
+
 		while (time() - $startTime < $maxExecutionTime) {
-			$expiredUids = $this->userQueries->findDeletions($refTime, $limit, $offset);
-			
+			$refTime = new \DateTime();
+			$expiredUids = $this->userQueries->findDeletions($refTime, $limit);
+
 			if (empty($expiredUids)) {
-				$this->logger->info("No more users to delete, exiting job.");
-				break; // No more users to delete
+				$this->logger->info('No more users to delete, exiting job.');
+				break;
 			}
-	
-			$this->logger->info(\count($expiredUids) . " users found for deletion in this batch.");
-	
+
+			$this->logger->info(\count($expiredUids) . ' users found for deletion in this batch.');
+
 			foreach ($expiredUids as $uid) {
-				// cancel if the runtime has exceeded 3 hours
 				if (time() - $startTime > $maxExecutionTime) {
-					$this->logger->info("User account deletion job stopped after 3 hours.");
+					$this->logger->info('User account deletion job stopped after 3 hours.');
 					return;
 				}
-	
+
 				try {
+					$deletionDate = $this->userQueries->getDeletionDateTime($uid);
+
+					if ($deletionDate === null) {
+						$this->logger->warning("Skipping $uid, deletion entry no longer exists.");
+						continue;
+					}
+
+					$now = new \DateTime();
+					if ($deletionDate > $now) {
+						$this->logger->warning(
+							"Skipping $uid, deletion not due yet: " . $deletionDate->format(\DateTimeInterface::ATOM)
+						);
+						continue;
+					}
+
 					$user = $this->userManager->get($uid);
 					if (!$user) {
-						$this->logger->warning("User $uid not found, removing deletion entry and cleaning up.");
-
-						// Call deleteUserPreferenceById to ensure cleanup
+						$this->logger->warning("User $uid not found, removing user preferences and cleaning up.");
 						$this->userQueries->deleteUserPreferenceById($uid);
-
 						continue;
 					}
-	
-					$this->logger->info("Deleting " . $uid);
-					$startDeletionTime = time(); // start time for this user
-	
-					// delete user
+
+					$this->logger->info("Deleting $uid, deletion due since " . $deletionDate->format(\DateTimeInterface::ATOM));
+
+					$startDeletionTime = time();
+
 					$user->delete();
-	
-					// if deletion takes longer than 30 minutes, cancel
 
 					if (time() - $startDeletionTime > $maxDeletionTimePerUser) {
-						$this->logger->warning("User $uid deletion took too long, skipping.");
+						$this->logger->warning("User $uid deletion took longer than 30 minutes, skipping.");
 						continue;
 					}
-	
-					$this->logger->info("User $uid deleted successfully.");
-	
+
+					$this->userQueries->deleteUserPreferenceById($uid);
+
+					$this->logger->info("User $uid deleted successfully and preferences cleaned up.");
 				} catch (\Throwable $e) {
-					$this->logger->logException($e, [
-						'message' => "Deletion failed for $uid: " . $e->getMessage(),
-						'level' => 3,
-						'app' => 'nmcprovisioning'
+					$this->logger->error("Deletion failed for $uid: " . $e->getMessage(), [
+						'exception' => $e,
+						'app' => 'nmcprovisioning',
 					]);
-					continue; // jump to the next user in case of errors
+
+					continue;
 				}
 			}
-	
-			$offset += $limit; // jump to next batch
 		}
-	
-		$this->logger->info("User account deletion job ended");
+
+		$this->logger->info('User account deletion job ended');
 	}
 }
