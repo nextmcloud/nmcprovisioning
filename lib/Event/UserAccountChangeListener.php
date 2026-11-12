@@ -10,41 +10,44 @@ use Psr\Log\LoggerInterface;
 
 class UserAccountChangeListener implements IEventListener {
 
-	/** @var LoggerInterface */
-	private $logger;
+	private LoggerInterface $logger;
+	private UserAccountRules $accountRules;
 
-	/** @var UserAccountRules */
-	private $accountRules;
-
-
-	public function __construct(LoggerInterface $logger,
-		UserAccountRules $accountRules) {
+	public function __construct(LoggerInterface $logger, UserAccountRules $accountRules) {
 		$this->logger = $logger;
 		$this->accountRules = $accountRules;
 	}
 
 	public function handle(Event $event): void {
-		if ($event instanceof UserAccountChangeEvent) {
-			$this->logger->debug("{$event->getUID()}: UserAccountChangeEvent received.");
-			$this->onChangeAccount($event);
+		if (!$event instanceof UserAccountChangeEvent) {
+			return;
 		}
+
+		$this->logger->debug("{$event->getUID()}: UserAccountChangeEvent received.");
+		$this->onChangeAccount($event);
 	}
 
-	/**
-	 * NextMagentaCloud wants to have shorter displaynames, but SAM3 only delivers displaynames
-	 * with mail domain, so we remove the domain to get consistent with SLUP `alia` attribute
-	 */
-	protected function onChangeAccount(UserAccountChangeEvent $event) {
+	protected function onChangeAccount(UserAccountChangeEvent $event): void {
 		$claims = $event->getClaims();
-		$this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
 
-		$evalResult = $this->accountRules->deriveAccountState($event->getUid(), $event->getDisplayName(),
-			$event->getMainEmail(), $event->getQuota(), $claims);
-		if (!array_key_exists('redirect', $evalResult)) {
-			$event->setResult($evalResult['allowed'], $evalResult['reason']);
-		} else {
-			$event->setResult($evalResult['allowed'], $evalResult['reason'], $evalResult['redirect']);
+		// Log claim names only, never the complete token contents.
+		$this->logger->debug("{$event->getUID()}: Account change claims received.", [
+			'claimKeys' => array_keys(get_object_vars($claims)),
+		]);
+
+		$result = $this->accountRules->deriveAccountState(
+			$event->getUID(),
+			$event->getDisplayName(),
+			$event->getMainEmail(),
+			$event->getQuota(),
+			$claims
+		);
+
+		if (array_key_exists('redirect', $result)) {
+			$event->setResult($result['allowed'], $result['reason'], $result['redirect']);
+			return;
 		}
-	}
 
+		$event->setResult($result['allowed'], $result['reason']);
+	}
 }

@@ -14,72 +14,185 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
 class UserAccountDeletionJobTest extends TestCase {
+	private const UID = '120042010000000004200001';
+
+	private $app;
+	private $timeFactory;
+	private $userQueries;
+	private $userManager;
+	private $job;
+
 	public function setUp(): void {
 		parent::setUp();
+
 		$this->app = new \OCP\AppFramework\App(Application::APP_ID);
+		$this->timeFactory = $this->createMock(ITimeFactory::class);
+		$this->timeFactory->method('getTime')->willReturn(2_000_000_000);
+
 		$this->userQueries = $this->createMock(UserQueries::class);
 		$this->userManager = $this->getMockForAbstractClass(IUserManager::class);
-		$this->job = new UserAccountDeletionJob($this->app->getContainer()->get(ITimeFactory::class),
-			$this->app->getContainer()->get(LoggerInterface::class),
-			$this->userQueries,
-			$this->userManager);
+
+		$this->job = new UserAccountDeletionJob($this->timeFactory, $this->app->getContainer()->get(LoggerInterface::class), $this->userQueries, $this->userManager);
 	}
 
-	public function testJobRunNone() {
+	public function testJobRunNone(): void {
 		$this->userQueries->expects($this->once())
-			->method("findDeletions")
-			->willReturn([]);  // Keine Benutzer zum Löschen
-	
-		// Mock für den Benutzer, der nie gelöscht wird
-		$user = $this->getMockForAbstractClass(IUser::class);
-		$user->expects($this->never())->method("delete");  // delete wird niemals aufgerufen
-		$this->userManager->expects($this->never())->method("get");  // get wird auch nie aufgerufen
-	
+			->method('findDeletions')
+			->willReturn([]);
+
+		$this->userManager->expects($this->never())
+			->method('get');
+
 		$this->job->run(null);
 	}
 
-	public function testJobRunMultiple() {
-		// Simuliere mehrere Aufrufe von findDeletions, um Benutzer in verschiedenen Batches zu finden
-		$this->userQueries->expects($this->exactly(3))  // findDeletions wird dreimal aufgerufen
-			->method("findDeletions")
-			->willReturnOnConsecutiveCalls(
-				['120042010000000004200001', '120042010000000004200002'],  // Erstes Batch
-				['120042010000000004200003'],  // Zweites Batch
-				[]  // Drittens Batch, keine Benutzer mehr zu löschen
-			);
-	
-		// Mock des Benutzers, der gelöscht werden soll
-		$user = $this->getMockForAbstractClass(IUser::class);
-		$user->expects($this->exactly(3))->method("delete");  // delete wird für jeden Benutzer genau einmal aufgerufen
-		$this->userManager->expects($this->exactly(3))  // get wird für jeden Benutzer aufgerufen
-			->method("get")
-			->withConsecutive(
-				[$this->equalTo('120042010000000004200001')],
-				[$this->equalTo('120042010000000004200002')],
-				[$this->equalTo('120042010000000004200003')]
-			)
-			->willReturn($user);
-	
-		$this->job->run(null);
-	}
+	public function testValidDisabledUserIsDeleted(): void {
+		$state = $this->validState();
 
-	public function testJobRunOne() {
-		// Simuliere findDeletions mit nur einem Benutzer
 		$this->userQueries->expects($this->exactly(2))
-			->method("findDeletions")
-			->willReturnOnConsecutiveCalls(
-				['120042010000000004200001'],  // Erstes Batch
-				[]  // Zweites Batch, keine Benutzer mehr zu löschen
-			);
-	
-		// Mock des Benutzers, der gelöscht werden soll
+			->method('findDeletions')
+			->willReturnOnConsecutiveCalls([self::UID], []);
+
+		$this->userQueries->expects($this->exactly(3))
+			->method('getDeletionState')
+			->with(self::UID)
+			->willReturn($state);
+
 		$user = $this->getMockForAbstractClass(IUser::class);
-		$user->expects($this->once())->method("delete");  // delete wird genau einmal aufgerufen
-		$this->userManager->expects($this->once())  // get wird genau einmal aufgerufen
-			->method("get")
-			->with($this->equalTo('120042010000000004200001'))
+		$user->method('isEnabled')->willReturn(false);
+		$user->expects($this->once())->method('delete');
+
+		$this->userManager->expects($this->exactly(2))
+			->method('get')
+			->with(self::UID)
 			->willReturn($user);
-	
+
+		$this->userQueries->expects($this->once())
+			->method('deleteUserPreferenceById')
+			->with(self::UID);
+
 		$this->job->run(null);
+	}
+
+	public function testEnabledUserIsNeverDeleted(): void {
+		$this->userQueries->expects($this->exactly(2))
+			->method('findDeletions')
+			->willReturnOnConsecutiveCalls([self::UID], []);
+
+		$this->userQueries->expects($this->once())
+			->method('getDeletionState')
+			->willReturn($this->validState());
+
+		$user = $this->getMockForAbstractClass(IUser::class);
+		$user->method('isEnabled')->willReturn(true);
+		$user->expects($this->never())->method('delete');
+
+		$this->userManager->expects($this->once())
+			->method('get')
+			->willReturn($user);
+
+		$this->userQueries->expects($this->once())
+			->method('deleteDeletionPreferencesById')
+			->with(self::UID);
+
+		$this->job->run(null);
+	}
+
+	public function testLegacyDeletionMarkerWithoutMetadataIsDisarmed(): void {
+		$state = $this->validState();
+		$state['withdrawal'] = null;
+		$state['markedAt'] = null;
+
+		$this->userQueries->expects($this->exactly(2))
+			->method('findDeletions')
+			->willReturnOnConsecutiveCalls([self::UID], []);
+
+		$this->userQueries->expects($this->once())
+			->method('getDeletionState')
+			->willReturn($state);
+
+		$this->userManager->expects($this->never())
+			->method('get');
+
+		$this->userQueries->expects($this->once())
+			->method('deleteDeletionPreferencesById')
+			->with(self::UID);
+
+		$this->job->run(null);
+	}
+
+	public function testNewerAccountStateDisarmsDeletion(): void {
+		$state = $this->validState();
+		$state['lastAccountChange'] = new \DateTimeImmutable('2033-05-18T02:00:00+00:00');
+
+		$this->userQueries->expects($this->exactly(2))
+			->method('findDeletions')
+			->willReturnOnConsecutiveCalls([self::UID], []);
+
+		$this->userQueries->expects($this->once())
+			->method('getDeletionState')
+			->willReturn($state);
+
+		$this->userManager->expects($this->never())
+			->method('get');
+
+		$this->userQueries->expects($this->once())
+			->method('deleteDeletionPreferencesById')
+			->with(self::UID);
+
+		$this->job->run(null);
+	}
+
+	public function testChangedDeletionStatePreventsDelete(): void {
+		$first = $this->validState();
+		$second = $this->validState();
+		$second['deletion'] = new \DateTimeImmutable('2033-05-18T01:00:01+00:00');
+
+		$this->userQueries->expects($this->exactly(2))
+			->method('findDeletions')
+			->willReturnOnConsecutiveCalls([self::UID], []);
+
+		$this->userQueries->expects($this->exactly(2))
+			->method('getDeletionState')
+			->willReturnOnConsecutiveCalls($first, $second);
+
+		$user = $this->getMockForAbstractClass(IUser::class);
+		$user->method('isEnabled')->willReturn(false);
+		$user->expects($this->never())->method('delete');
+
+		$this->userManager->expects($this->once())
+			->method('get')
+			->willReturn($user);
+
+		$this->job->run(null);
+	}
+
+	public function testMissingUserCleansOrphanedPreferences(): void {
+		$this->userQueries->expects($this->exactly(2))
+			->method('findDeletions')
+			->willReturnOnConsecutiveCalls([self::UID], []);
+
+		$this->userQueries->expects($this->once())
+			->method('getDeletionState')
+			->willReturn($this->validState());
+
+		$this->userManager->expects($this->once())
+			->method('get')
+			->willReturn(null);
+
+		$this->userQueries->expects($this->once())
+			->method('deleteUserPreferenceById')
+			->with(self::UID);
+
+		$this->job->run(null);
+	}
+
+	private function validState(): array {
+		return [
+			'deletion' => new \DateTimeImmutable('2033-05-18T01:00:00+00:00'),
+			'withdrawal' => new \DateTimeImmutable('2033-03-19T01:00:00+00:00'),
+			'markedAt' => new \DateTimeImmutable('2033-03-19T01:00:00+00:00'),
+			'lastAccountChange' => new \DateTimeImmutable('2033-03-19T01:00:00+00:00'),
+		];
 	}
 }

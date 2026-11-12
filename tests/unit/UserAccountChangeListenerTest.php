@@ -14,373 +14,313 @@ use OCA\UserOIDC\Event\UserAccountChangeEvent;
 use OCP\Accounts\IAccountManager;
 use OCP\IConfig;
 use OCP\IGroupManager;
+use OCP\IUser;
 use OCP\IUserManager;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
 class UserAccountChangeListenerTest extends TestCase {
+	private const UID = '12004901000000000XXXXXXX';
+
+	private $app;
+	private $config;
+	private $logger;
+	private $userManager;
+	private $oidcProviderMapper;
+	private $userService;
+	private $accountRules;
+	private $listener;
+
 	public function setUp(): void {
 		parent::setUp();
+
 		$this->app = new \OCP\AppFramework\App(Application::APP_ID);
 		$this->config = $this->getMockForAbstractClass(IConfig::class);
 		$this->logger = $this->app->getContainer()->get(LoggerInterface::class);
 		$this->userManager = $this->getMockForAbstractClass(IUserManager::class);
-		$this->oidcProviderMapper = $this->app->getContainer()->get(ProviderMapper::class);
+		$this->oidcProviderMapper = $this->app
+			->getContainer()
+			->get(ProviderMapper::class);
+
 		$this->userService = $this->getMockBuilder(NmcUserService::class)
-									->setConstructorArgs([ $this->app->getContainer()->get(IUserManager::class),
-										$this->app->getContainer()->get(IAccountManager::class),
-										$this->logger,
-										$this->config,
-										$this->app->getContainer()->get(UserMapper::class),
-										$this->app->getContainer()->get(ProviderMapper::class),
-										$this->app->getContainer()->get(IGroupManager::class)])
-									->onlyMethods(['create', 'update', 'userExists'])
-									->getMock();
-		$this->accountRules = new UserAccountRules($this->config,
-			$this->logger,
-			$this->userService,
-			$this->userManager,
-			$this->oidcProviderMapper);
+			->setConstructorArgs([
+				$this->app->getContainer()->get(IUserManager::class),
+				$this->app->getContainer()->get(IAccountManager::class),
+				$this->logger,
+				$this->config,
+				$this->app->getContainer()->get(UserMapper::class),
+				$this->app->getContainer()->get(ProviderMapper::class),
+				$this->app->getContainer()->get(IGroupManager::class),
+			])
+			->onlyMethods([
+				'create',
+				'update',
+				'userExists',
+				'markDeletion',
+				'unmarkDeletion',
+				'isStaleAccountChange',
+				'recordAccountChangeTime',
+			])
+			->getMock();
+
+		$this->accountRules = new UserAccountRules($this->config, $this->logger, $this->userService, $this->userManager, $this->oidcProviderMapper);
 		$this->listener = new UserAccountChangeListener($this->logger, $this->accountRules);
 
-		$this->config->expects($this->any())
-		->method("getAppValue")
-		->with($this->equalTo('nmcprovisioning'),
-			$this->logicalOr($this->equalTo('userretention'),
-				$this->equalTo('useraccessurl'),
-				$this->equalTo('userwithdrawurl'),
-				$this->equalTo('userpreserveurl'),
-				$this->equalTo('userotturl')))
-		->willReturn($this->returnCallback(function ($app, $key) {
-			$values = [
-				'userwithdrawurl' => "https://cloud.telekom-dienste.de",
-				'userpreserveurl' => "https://telekom.example.com/",
-				'useraccessurl' => "https://cloud.telekom-dienste.de/tarife",
-				'userotturl' => "https://cloud.telekom-dienste.de/ott",
-				'userretention' => "P60D",
+		$this->config->method('getSystemValue')
+			->willReturn([
+				'slup_test_account_check' => true,
+				'slup_test_account_name' => '-test',
+				'slup_test_account_explode' => '@',
+			]);
 
-			];
+		$this->config->method('getAppValue')
+			->willReturnCallback(
+				static function ($app, $key, $default = '') {
+					$values = [
+						'userwithdrawurl' => 'https://cloud.telekom-dienste.de',
+						'userpreserveurl' => 'https://telekom.example.com/',
+						'useraccessurl' => 'https://cloud.telekom-dienste.de/tarife',
+						'userotturl' => 'https://cloud.telekom-dienste.de/ott',
+					];
 
-			return $values[$key];
-		}));
+					return $values[$key] ?? $default;
+				}
+			);
 	}
 
-	public function testWithdrawNonExisting() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0","urn:telekom.com:usta":"1",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"0","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"0",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-
-		$this->userService->expects($this->once())
-						->method('userExists')
-						->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-						->willReturn(false);
-	
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3GB", $oidcClaims);
-		$this->listener->handle($event);
-		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('No tariff no new account', $event->getResult()->getReason());
-		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals("https://cloud.telekom-dienste.de", $event->getResult()->getRedirectUrl());
-	}
-
-	public function testWithdrawNoUsta() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"0","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"0",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-
-		$this->userService->expects($this->once())
-						->method('userExists')
-						->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-						->willReturn(true);
-		$this->config->expects($this->once())
-					->method("setUserValue")
-					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
-		$this->userService->expects($this->once())
-						->method('update')
-						->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"),
-							$this->equalTo("jonny.gyros"), $this->equalTo("jonny.gyros@ver.sul.t-online.de"),
-							$this->isNull(), $this->equalTo("3 GB"), $this->isFalse(), $this->isFalse())
-						->willReturn(false);
-
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
-
-		$this->listener->handle($event);
-		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
-		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals("https://cloud.telekom-dienste.de", $event->getResult()->getRedirectUrl());
-	}
-
-	public function testPreserveOtherUsta() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0","urn:telekom.com:usta":"0",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"0","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"1",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-
-		$this->userService->expects($this->once())
-							->method('userExists')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-							->willReturn(true);
-		$this->config->expects($this->once())
-							->method("setUserValue")
-							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
-		$this->userService->expects($this->once())
-							->method('update')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"),
-								$this->equalTo("jonny.gyros"), $this->equalTo("jonny.gyros@ver.sul.t-online.de"),
-								$this->isNull(), $this->equalTo("3 GB"), $this->isFalse(), $this->isFalse())
-							->willReturn(false);
-
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
-
-		$this->listener->handle($event);
-		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
-		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals('https://telekom.example.com/', $event->getResult()->getRedirectUrl());
-	}
-
-
-	public function testWithdrawPreserve() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0","urn:telekom.com:usta":"1",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"0","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"1",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:usta":"3",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-		
-		$this->userService->expects($this->once())
-							->method('userExists')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-							->willReturn(true);
-		$this->config->expects($this->once())
-							->method("setUserValue")
-							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
-		$this->userService->expects($this->once())
-							->method('update')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"),
-								$this->equalTo("jonny.gyros"), $this->equalTo("jonny.gyros@ver.sul.t-online.de"),
-								$this->isNull(), $this->equalTo("3 GB"), $this->isFalse(), $this->isFalse())
-							->willReturn(false);
-
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
-
-		$this->listener->handle($event);
-		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
-		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals('https://telekom.example.com/', $event->getResult()->getRedirectUrl());
-	}
-
-	public function testWithdrawOTT() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0","urn:telekom.com:usta":"1",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"0","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"0",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-		
-		$this->userService->expects($this->once())
-							->method('userExists')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-							->willReturn(true);
-		$this->config->expects($this->once())
-							->method("setUserValue")
-							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
-		$this->userService->expects($this->once())
-							->method('update')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"),
-								$this->equalTo("jonny.gyros"), $this->equalTo("jonny.gyros@ver.sul.t-online.de"),
-								$this->isNull(), $this->equalTo("3 GB"), $this->isFalse(), $this->isFalse())
-							->willReturn(false);
-
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
-
-		$this->listener->handle($event);
-		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
-		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals("https://cloud.telekom-dienste.de/ott", $event->getResult()->getRedirectUrl());
-	}
-
-	public function testWithdrawAccess() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0","urn:telekom.com:usta":"3",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"0","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"0",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-		
-		$this->userService->expects($this->once())
-							->method('userExists')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-							->willReturn(true);
-		$this->config->expects($this->once())
-							->method("setUserValue")
-							->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
-		$this->userService->expects($this->once())
-							->method('update')
-							->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"),
-								$this->equalTo("jonny.gyros"), $this->equalTo("jonny.gyros@ver.sul.t-online.de"),
-								$this->isNull(), $this->equalTo("3 GB"), $this->isFalse(), $this->isFalse())
-							->willReturn(false);
-
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
-
-		$this->listener->handle($event);
-		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Withdrawn', $event->getResult()->getReason());
-		$this->assertNotNull($event->getResult()->getRedirectUrl());
-		$this->assertEquals("https://cloud.telekom-dienste.de/tarife", $event->getResult()->getRedirectUrl());
-	}
-
-	public function testUnWithdraw() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0","urn:telekom.com:usta":"1",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"1","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"1",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-
+	public function testWithdrawNonExisting(): void {
 		$this->userService->expects($this->once())
 			->method('userExists')
-			->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-			->willReturn(true);
-		$this->config->expects($this->once())
-			->method("deleteUserValue")
-			->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
-		$this->userService->expects($this->once())
-			->method('update')
-			->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"),
-				$this->equalTo("jonny.gyros"), $this->equalTo("jonny.gyros@ver.sul.t-online.de"),
-				$this->isNull(), $this->equalTo("3 GB"), $this->isFalse(), $this->isTrue())
-			->willReturn(true);
+			->willReturn(null);
 
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '0',
+			])
+		);
 
 		$this->listener->handle($event);
-		$this->assertTrue($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Updated', $event->getResult()->getReason());
-		$this->assertNull($event->getResult()->getRedirectUrl());
-	}
 
-	public function testLock() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"1","urn:telekom.com:usta":"1",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"1","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"1",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-
-		$this->userService->expects($this->once())
-			->method('userExists')
-			->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
-			->willReturn(true);
-		$this->userService->expects($this->once())
-			->method('update')
-			->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"),
-				$this->equalTo("jonny.gyros"), $this->equalTo("jonny.gyros@ver.sul.t-online.de"),
-				$this->isNull(), $this->equalTo("3 GB"), $this->isFalse(), $this->isFalse())
-			->willReturn(true);
-
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
-
-		$this->listener->handle($event);
 		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Locked', $event->getResult()->getReason());
-		$this->assertNull($event->getResult()->getRedirectUrl());
+		$this->assertSame('No tariff no new account', $event->getResult()->getReason());
 	}
 
-	public function testLockNonExisting() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"1","urn:telekom.com:usta":"1",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"1","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"1",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
+	public function testExistingWithdrawalWithChangeTimeSchedulesDeletion(): void {
+		$user = $this->existingUser(false);
 
-		$this->userService->expects($this->once())
-			->method('userExists')
-			->with($this->equalTo('Telekom'), $this->equalTo("12004901000000000XXXXXXX"))
+		$this->userService->method('userExists')
+			->willReturn($user);
+		$this->userService->method('isStaleAccountChange')
 			->willReturn(false);
 
-		$event = new UserAccountChangeEvent("12004901000000000XXXXXXX", "jonny.gyros",
-			"jonny.gyros@ver.sul.t-online.de", "3 GB", $oidcClaims);
+		$expectedDeletion = new \DateTimeImmutable('2030-03-02T00:00:00+00:00');
+
+		$this->userService->expects($this->once())
+			->method('markDeletion')
+			->willReturn($expectedDeletion);
+
+		$this->userService->expects($this->once())
+			->method('update')
+			->with($user, 'jonny.gyros', 'jonny.gyros@ver.sul.t-online.de', '3 GB', false);
+
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '0',
+				'changeTime' => '2030-01-01T00:00:00Z',
+			])
+		);
 
 		$this->listener->handle($event);
+
 		$this->assertFalse($event->getResult()->isAccessAllowed());
-		$this->assertEquals('Locked no new account', $event->getResult()->getReason());
-		$this->assertNull($event->getResult()->getRedirectUrl());
+		$this->assertSame('Withdrawn', $event->getResult()->getReason());
+	}
+
+	public function testWithdrawalWithoutChangeTimeNeverSchedulesDeletion(): void {
+		$user = $this->existingUser(false);
+
+		$this->userService->method('userExists')
+			->willReturn($user);
+
+		$this->userService->expects($this->never())
+			->method('markDeletion');
+
+		$this->userService->expects($this->once())
+			->method('unmarkDeletion')
+			->with(self::UID);
+
+		$this->userService->expects($this->once())
+			->method('update')
+			->with($user, 'jonny.gyros', 'jonny.gyros@ver.sul.t-online.de', '3 GB', false);
+
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '0',
+				'auth_time' => 1637683330,
+			])
+		);
+
+		$this->listener->handle($event);
+
+		$this->assertSame('Withdrawn without valid changeTime - deletion not scheduled', $event->getResult()->getReason());
+	}
+
+	public function testMissingBookingClaimNeverSchedulesDeletion(): void {
+		$user = $this->existingUser(false);
+
+		$this->userService->method('userExists')
+			->willReturn($user);
+
+		$this->userService->expects($this->never())
+			->method('markDeletion');
+
+		$this->userService->expects($this->once())
+			->method('unmarkDeletion')
+			->with(self::UID);
+
+		$event = $this->event(
+			$this->claims([
+				'changeTime' => '2030-01-01T00:00:00Z',
+			])
+		);
+
+		$this->listener->handle($event);
+
+		$this->assertFalse($event->getResult()->isAccessAllowed());
+		$this->assertSame('Missing tariff claim - deletion not scheduled', $event->getResult()->getReason());
+	}
+
+	public function testStaleWithdrawalIsIgnored(): void {
+		$user = $this->existingUser(true);
+
+		$this->userService->method('userExists')
+			->willReturn($user);
+		$this->userService->method('isStaleAccountChange')
+			->willReturn(true);
+
+		$this->userService->expects($this->never())
+			->method('markDeletion');
+		$this->userService->expects($this->never())
+			->method('update');
+
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '0',
+				'changeTime' => '2030-01-01T00:00:00Z',
+			])
+		);
+
+		$this->listener->handle($event);
+
+		$this->assertTrue($event->getResult()->isAccessAllowed());
+		$this->assertSame('Stale withdrawal event ignored', $event->getResult()->getReason());
+	}
+
+	public function testReactivationAlwaysCancelsDeletion(): void {
+		$user = $this->existingUser(false);
+
+		$this->userService->method('userExists')
+			->willReturn($user);
+		$this->userService->method('isStaleAccountChange')
+			->willReturn(false);
+
+		$this->userService->expects($this->once())
+			->method('unmarkDeletion')
+			->with(self::UID);
+
+		$this->userService->expects($this->once())
+			->method('update')
+			->with($user, 'jonny.gyros', 'jonny.gyros@ver.sul.t-online.de', '3 GB', true);
+
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '1',
+				'changeTime' => '2030-01-02T00:00:00Z',
+			])
+		);
+
+		$this->listener->handle($event);
+
+		$this->assertTrue($event->getResult()->isAccessAllowed());
+		$this->assertSame('Updated', $event->getResult()->getReason());
+	}
+
+	public function testBookedButLockedStillCancelsDeletion(): void {
+		$user = $this->existingUser(false);
+
+		$this->userService->method('userExists')
+			->willReturn($user);
+		$this->userService->method('isStaleAccountChange')
+			->willReturn(false);
+
+		$this->userService->expects($this->once())
+			->method('unmarkDeletion')
+			->with(self::UID);
+
+		$this->userService->expects($this->once())
+			->method('update')
+			->with($user, 'jonny.gyros', 'jonny.gyros@ver.sul.t-online.de', '3 GB', false);
+
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '1',
+				'urn:telekom.com:s556' => '1',
+				'changeTime' => '2030-01-02T00:00:00Z',
+			])
+		);
+
+		$this->listener->handle($event);
+
+		$this->assertFalse($event->getResult()->isAccessAllowed());
+		$this->assertSame('Locked', $event->getResult()->getReason());
+	}
+
+	public function testPreserveRedirectIsKept(): void {
+		$user = $this->existingUser(false);
+
+		$this->userService->method('userExists')
+			->willReturn($user);
+		$this->userService->method('isStaleAccountChange')
+			->willReturn(false);
+		$this->userService->method('markDeletion')
+			->willReturn(new \DateTimeImmutable('2030-03-02T00:00:00+00:00'));
+
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '0',
+				'urn:telekom.com:f734' => '1',
+				'changeTime' => '2030-01-01T00:00:00Z',
+			])
+		);
+
+		$this->listener->handle($event);
+
+		$this->assertSame(
+			'https://telekom.example.com/',
+			$event->getResult()->getRedirectUrl()
+		);
+	}
+
+	private function existingUser(bool $enabled): IUser {
+		$user = $this->getMockForAbstractClass(IUser::class);
+		$user->method('getUID')->willReturn(self::UID);
+		$user->method('isEnabled')->willReturn($enabled);
+
+		return $user;
+	}
+
+	private function event(object $claims): UserAccountChangeEvent {
+		return new UserAccountChangeEvent(self::UID, 'jonny.gyros', 'jonny.gyros@ver.sul.t-online.de', '3 GB', $claims);
+	}
+
+	private function claims(array $overrides = []): object {
+		return (object)array_merge(
+			[
+				'urn:telekom.com:s556' => '0',
+				'urn:telekom.com:usta' => '1',
+				'urn:telekom.com:f734' => '0',
+			],
+			$overrides
+		);
 	}
 }

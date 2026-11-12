@@ -21,6 +21,14 @@ use Psr\Log\LoggerInterface;
 // classes from user_oidc app
 
 class NmcUserService {
+	private const KEY_DELETION = 'deletion';
+	private const KEY_WITHDRAWAL = 'withdrawal';
+	private const KEY_DELETION_MARKED_AT = 'deletion_marked_at';
+	private const KEY_LAST_ACCOUNT_CHANGE = 'last_account_change';
+
+	private const DEFAULT_RETENTION = 'P60D';
+	private const DEFAULT_SAFETY_DELAY = 'P1D';
+
 
 	/** @var IUserManager */
 	private $userManager;
@@ -152,49 +160,168 @@ class NmcUserService {
 	}
 
 	/**
-	 *  Set deletion timestamp for delayed deletion
-	 *  It is computed as withdrawDate + userretention (atm withdrawDate + 60D)
-	 * `userretention` appvalue is taken as the retention period if set,
-	 * given as ISO8601/PHP DateInterval formatted string, with a default of "P60D"
-	 * It can be set with:
-	 * `sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userretention --value P60DT1H`
-	 * @return the computed deletion date
+	 * Return the newest account-state change timestamp accepted for this user.
+	 *
+	 * This timestamp is deliberately kept when a deletion is cancelled. It is
+	 * used to reject delayed/out-of-order withdrawal events later on.
 	 */
-	public function markDeletion(string $userId, \DateTime $withdrawTime): \DateTime {
-		$deletionDate = clone $withdrawTime;
-		$retention = new \DateInterval($this->config->getAppValue('nmcprovisioning', 'userretention', "P60D"));
-		$deletionDate->add($retention);
+	public function getLastAccountChangeTime(string $userId): ?\DateTimeImmutable {
+		return $this->getUserTimestamp($userId, self::KEY_LAST_ACCOUNT_CHANGE);
+	}
+
+	/**
+	 * Record an account-state change without allowing an older timestamp to
+	 * replace a newer one.
+	 */
+	public function recordAccountChangeTime(string $userId, \DateTimeInterface $changeTime): bool {
+		$incomingTimestamp = $changeTime->getTimestamp();
+		$current = $this->getLastAccountChangeTime($userId);
+
+		if ($current !== null && $incomingTimestamp < $current->getTimestamp()) {
+			return false;
+		}
+
+		if ($current === null || $incomingTimestamp > $current->getTimestamp()) {
+			$this->config->setUserValue($userId, Application::APP_ID, self::KEY_LAST_ACCOUNT_CHANGE, $incomingTimestamp);
+		}
+
+		return true;
+	}
+
+	public function isStaleAccountChange(string $userId, \DateTimeInterface $changeTime): bool {
+		$current = $this->getLastAccountChangeTime($userId);
+
+		return $current !== null && $changeTime->getTimestamp() < $current->getTimestamp();
+	}
+
+	/**
+	 * Mark a user for delayed deletion.
+	 *
+	 * The effective deletion date is the later of:
+	 *  - authoritative withdrawal time + configured retention period
+	 *  - first local observation of this withdrawal + safety delay
+	 *
+	 * The second condition prevents an old/replayed event from becoming
+	 * immediately destructive when it reaches this system for the first time.
+	 *
+	 * @return \DateTimeImmutable|null Null if the withdrawal event is stale.
+	 */
+	public function markDeletion(string $userId, \DateTimeInterface $withdrawTime): ?\DateTimeImmutable {
+		if ($this->isStaleAccountChange($userId, $withdrawTime)) {
+			$this->logger->warning('Refusing stale withdrawal event', [
+				'userId' => $userId,
+				'withdrawTime' => $withdrawTime->format(\DateTimeInterface::ATOM),
+				'lastAccountChange' => $this->getLastAccountChangeTime($userId)?->format(\DateTimeInterface::ATOM),
+			]);
+			return null;
+		}
+
+		$withdrawal = \DateTimeImmutable::createFromInterface($withdrawTime);
+		$existingWithdrawal = $this->getUserTimestamp($userId, self::KEY_WITHDRAWAL);
+		$existingMarkedAt = $this->getUserTimestamp($userId, self::KEY_DELETION_MARKED_AT);
+
+		/*
+		 * Repeated delivery of the same event must not keep moving the local
+		 * safety window. For a genuinely newer withdrawal event, start a new
+		 * observation window.
+		 */
+		if ($existingWithdrawal !== null && $existingMarkedAt !== null && $existingWithdrawal->getTimestamp() === $withdrawal->getTimestamp()) {
+			$markedAt = $existingMarkedAt;
+		} else {
+			$markedAt = new \DateTimeImmutable();
+		}
+
+		$retention = $this->getConfiguredInterval('userretention', self::DEFAULT_RETENTION);
+		$safetyDelay = $this->getConfiguredInterval('userdeletionsafetydelay', self::DEFAULT_SAFETY_DELAY);
+
+		$retentionDate = $withdrawal->add($retention);
+		$safetyDate = $markedAt->add($safetyDelay);
+		$deletionDate = $retentionDate > $safetyDate ? $retentionDate : $safetyDate;
+
+		if (!$this->recordAccountChangeTime($userId, $withdrawal)) {
+			$this->logger->warning('Withdrawal became stale before it could be stored', [
+				'userId' => $userId,
+				'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
+			]);
+			return null;
+		}
 
 		$this->logger->info('Marking user for delayed deletion', [
 			'userId' => $userId,
-			'withdrawTime' => $withdrawTime->format(\DateTimeInterface::ATOM),
+			'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
+			'markedAt' => $markedAt->format(\DateTimeInterface::ATOM),
 			'deletionDate' => $deletionDate->format(\DateTimeInterface::ATOM),
-			'retention' => $this->config->getAppValue('nmcprovisioning', 'userretention', "P60D"),
+			'retention' => $this->config->getAppValue('nmcprovisioning', 'userretention', self::DEFAULT_RETENTION),
+			'safetyDelay' => $this->config->getAppValue('nmcprovisioning', 'userdeletionsafetydelay', self::DEFAULT_SAFETY_DELAY),
 		]);
 
-		$this->config->setUserValue($userId, Application::APP_ID, 'deletion', $deletionDate->getTimestamp());
+		/*
+		 * Write supporting metadata first and the actual deletion marker last.
+		 * A partially written state therefore cannot become eligible for the
+		 * deletion query.
+		 */
+		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL, $withdrawal->getTimestamp());
+		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_DELETION_MARKED_AT, $markedAt->getTimestamp());
+		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_DELETION, $deletionDate->getTimestamp());
+
+		/*
+		 * Narrow the race window with a concurrent reactivation/newer event.
+		 * If a newer state appeared while this method was writing, disarm the
+		 * deletion immediately. The deletion job performs the same check again.
+		 */
+		if ($this->isStaleAccountChange($userId, $withdrawal)) {
+			$this->logger->warning('Newer account state detected while marking deletion', [
+				'userId' => $userId,
+			]);
+			$this->unmarkDeletion($userId);
+			return null;
+		}
 
 		return $deletionDate;
 	}
 
 	/**
-	 *  Set withdraw timestamp for delayed deletion
+	 * Cancel a pending deletion.
+	 *
+	 * The actual deletion marker is removed first. This makes an interrupted
+	 * cleanup fail safe: the background job no longer sees the user as a
+	 * deletion candidate.
 	 */
-	public function unmarkDeletion(string $userId) {
-		$this->config->deleteUserValue($userId, Application::APP_ID, 'deletion');
+	public function unmarkDeletion(string $userId): void {
+		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_DELETION);
+		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL);
+		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_DELETION_MARKED_AT);
 	}
 
 	/**
-	 *  Get planned deletion date, or null if none.
+	 * Get planned deletion date, or null if none.
 	 */
-	public function getDeletionDateTime(string $userId): ?\DateTime {
-		$delTs = $this->config->getUserValue($userId, Application::APP_ID, 'deletion', null);
-		if ($delTs != null) {
-			$delDate = new \DateTime();
-			$delDate->setTimestamp($delTs);
-			return $delDate;
-		} else {
+	public function getDeletionDateTime(string $userId): ?\DateTimeImmutable {
+		return $this->getUserTimestamp($userId, self::KEY_DELETION);
+	}
+
+	private function getUserTimestamp(string $userId, string $key): ?\DateTimeImmutable {
+		$value = $this->config->getUserValue($userId, Application::APP_ID, $key, null);
+
+		if ($value === null || $value === '' || !is_numeric($value)) {
 			return null;
+		}
+
+		$timestamp = (int)$value;
+		if ($timestamp <= 0) {
+			return null;
+		}
+
+		return (new \DateTimeImmutable())->setTimestamp($timestamp);
+	}
+
+	private function getConfiguredInterval(string $key, string $default): \DateInterval {
+		$value = $this->config->getAppValue('nmcprovisioning', $key, $default);
+
+		try {
+			return new \DateInterval($value);
+		} catch (\Throwable $e) {
+			throw new \RuntimeException("Invalid nmcprovisioning configuration {$key}={$value}", 0, $e);
 		}
 	}
 
@@ -314,8 +441,7 @@ class NmcUserService {
 		}
 
 		//Its enough to check the string value from quota, the group mapping is matching with exact quota string
-		if (!is_null($quota) &&
-			$quota !== $user->getQuota()) {
+		if (!is_null($quota) && $quota !== $user->getQuota()) {
 			$this->logger->debug("PROV quota {$user->getUID()} old: {$user->getQuota()} new: {$quota}");
 			$user->setQuota($quota);
 			$this->autoGroupMatch($user, $quota);
