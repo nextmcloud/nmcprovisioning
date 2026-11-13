@@ -17,132 +17,139 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
 class UserWithdrawTest extends TestCase {
+	private $app;
+	private $config;
+	private $logger;
+	private $userManager;
+	private $oidcProviderMapper;
+	private $userService;
+	private $accountService;
+	private array $userValues = [];
+	private array $appValues = [];
+
 	public function setUp(): void {
 		parent::setUp();
+
 		$this->app = new \OCP\AppFramework\App(Application::APP_ID);
 		$this->config = $this->getMockForAbstractClass(IConfig::class);
 		$this->logger = $this->app->getContainer()->get(LoggerInterface::class);
 		$this->userManager = $this->getMockForAbstractClass(IUserManager::class);
 		$this->oidcProviderMapper = $this->app->getContainer()->get(ProviderMapper::class);
-		$this->userServiceMock = $this->getMockBuilder(NmcUserService::class)
-									->setConstructorArgs([ $this->app->getContainer()->get(IUserManager::class),
-										$this->app->getContainer()->get(IAccountManager::class),
-										$this->logger,
-										$this->config,
-										$this->app->getContainer()->get(UserMapper::class),
-										$this->app->getContainer()->get(ProviderMapper::class),
-										$this->app->getContainer()->get(IGroupManager::class)])
-									->onlyMethods(['create', 'update'])
-									->getMock();
-		$this->accountService = new UserAccountRules($this->config,
-			$this->logger,
-			$this->userServiceMock,
-			$this->userManager,
-			$this->oidcProviderMapper);
+
+		$this->configureInMemoryUserValues();
+
+		$this->appValues = [
+			'userretention' => 'P60D',
+			'userdeletionsafetydelay' => 'PT0S',
+		];
+
+		$this->config->method('getAppValue')
+			->willReturnCallback(function ($app, $key, $default = '') { return $this->appValues[$key] ?? $default; });
+
+		$this->userService = $this->getMockBuilder(NmcUserService::class)
+			->setConstructorArgs([
+				$this->app->getContainer()->get(IUserManager::class),
+				$this->app->getContainer()->get(IAccountManager::class),
+				$this->logger,
+				$this->config,
+				$this->app->getContainer()->get(UserMapper::class),
+				$this->app->getContainer()->get(ProviderMapper::class),
+				$this->app->getContainer()->get(IGroupManager::class),
+			])
+			->onlyMethods(['create', 'update'])
+			->getMock();
+
+		$this->accountService = new UserAccountRules($this->config, $this->logger, $this->userService, $this->userManager, $this->oidcProviderMapper);
 	}
 
-	public function testDeletionDateOidcClaims() {
-		$oidcClaims = json_decode(<<<JSON
-            {"sub":"12004901000000000XXXXXXX","urn:telekom.com:s556":"0","urn:telekom.com:usta":"1",
-            "urn:telekom.com:email":"jonny.gyros@ver.sul.t-online.de","iss":"https://telekom.example.com/",
-            "urn:telekom.com:f460":"0","urn:telekom.com:anid":"12004901000000000XXXXXXX","urn:telekom.com:f048":"1",
-            "urn:telekom.com:f556":"1","acr":"urn:telekom:names:idm:THO:1.0:ac:classes:passid:00","urn:telekom.com:f734":"0",
-            "urn:telekom.com:d556":"0","auth_time":1637683330,"exp":1637686930,"iat":1637683330,
-            "urn:telekom.com:mainEmail":"jonny.gyros@ver.sul.t-online.de","urn:telekom.com:f051":"0","urn:telekom.com:f471":"0",
-            "urn:telekom.com:displayname":"jonny.gyros@ver.sul.t-online.de",
-            "urn:telekom.com:session_token":"b71ce9a1-4c76-11ec-a456-6919c2d53a81","nonce":"H6VXIR86HC6C4Z41F0N10V8OJ49INS0J",
-            "urn:telekom.com:f468":"0","urn:telekom.com:f049":"0","urn:telekom.com:f467":"0",
-            "aud":["10TVL0SAM30000004901NEXTMAGENTACLOUDTEST"],"urn:telekom.com:f469":"0"}
-            JSON);
-		
-		$deletionTime = $this->accountService->withdrawDate($oidcClaims);
-		$this->assertEquals('2021-11-23T16:02:10+0000', $deletionTime-> format(\DateTimeInterface::ISO8601));
-	}
-	
-	public function testDeletionDateSlupClaims() {
-		$slupTestClaims = new \stdClass();
-		$slupTestClaims->request = "UTS";
-		$slupTestClaims->changeTime = "2021-11-18T08:11:09Z";
-		$slupTestClaims->token = "847841948";
-		$slupTestClaims->oldfields = new \stdClass();
-		$slupTestClaims->newfields = new \stdClass();
-		$deletionTime = $this->accountService->withdrawDate($slupTestClaims);
-		$this->assertEquals('2021-11-18T08:11:09+0000', $deletionTime-> format(\DateTimeInterface::ISO8601));
+	public function testWithdrawalDateUsesChangeTime(): void {
+		$claims = new \stdClass();
+		$claims->changeTime = '2021-11-18T08:11:09Z';
+
+		$withdrawalTime = $this->accountService->withdrawDate($claims);
+
+		$this->assertNotNull($withdrawalTime);
+		$this->assertSame('2021-11-18T08:11:09+00:00', $withdrawalTime->format(\DateTimeInterface::ATOM));
 	}
 
-	public function testDeletionDateDefault() {
-		$now = new \DateTime();
-		$deletionTime = $this->accountService->withdrawDate(new \stdClass());
-		$this->assertGreaterThanOrEqual($now->getTimestamp(), $deletionTime->getTimestamp());
-		$this->assertLessThan($now->getTimestamp() + 3, $deletionTime->getTimestamp());
+	public function testWithdrawalDateDoesNotFallbackToAuthTime(): void {
+		$claims = new \stdClass();
+		$claims->auth_time = 1637683330;
+
+		$this->assertNull($this->accountService->withdrawDate($claims));
 	}
 
-	public function testMarkDeletionDefault() {
-		$withdrawDate = new \DateTime("2021-08-03T16:05:06+0000");
-		$expectedDeletionDate = new \DateTime();
-		$expectedDeletionDate->setTimestamp($withdrawDate->getTimestamp() + 60 * 24 * 60 * 60);
-
-
-		$this->config->expects($this->once())
-					->method("getAppValue")
-					->with($this->equalTo('nmcprovisioning'), $this->equalTo('userretention'), $this->equalTo("P60D"))
-					->willReturn("P60D");
-		$this->config->expects($this->once())
-					->method("setUserValue")
-					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-						$this->equalTo($expectedDeletionDate->getTimestamp()));
-		$this->config->expects($this->once())
-					->method("getUserValue")
-					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-						$this->equalTo(null))
-					->willReturn($expectedDeletionDate->getTimestamp());
-		
-		$deletionDate = $this->userServiceMock->markDeletion('12004901000000000XXXXXXX', $withdrawDate);
-		$this->assertEquals($expectedDeletionDate, $deletionDate);
-
-		$readDeletionDate = $this->userServiceMock->getDeletionDateTime('12004901000000000XXXXXXX');
-		$this->assertNotNull($readDeletionDate);
-		$this->assertEquals($expectedDeletionDate, $readDeletionDate);
+	public function testWithdrawalDateWithoutTimestampIsNull(): void {
+		$this->assertNull($this->accountService->withdrawDate(new \stdClass()));
 	}
 
-	public function testMarkDeletionConfig() {
-		$withdrawDate = new \DateTime("2021-08-03T16:05:06+0000");
-		$expectedDeletionDate = new \DateTime();
-		$expectedDeletionDate->setTimestamp($withdrawDate->getTimestamp() + 60 * 60);
+	public function testMarkDeletionDefaultRetention(): void {
+		$userId = '12004901000000000XXXXXXX';
+		$withdrawal = new \DateTimeImmutable('2030-08-03T16:05:06+00:00');
+		$expected = $withdrawal->add(new \DateInterval('P60D'));
 
-		$this->config->expects($this->once())
-					->method("getAppValue")
-					->with($this->equalTo('nmcprovisioning'), $this->equalTo('userretention'), $this->equalTo("P60D"))
-					->willReturn("PT1H");
-		$this->config->expects($this->once())
-					->method("setUserValue")
-					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-						$this->equalTo($expectedDeletionDate->getTimestamp()));
-		$this->config->expects($this->once())
-					->method("getUserValue")
-					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-						$this->equalTo(null))
-					->willReturn($expectedDeletionDate->getTimestamp());
-		
-		$deletionDate = $this->userServiceMock->markDeletion('12004901000000000XXXXXXX', $withdrawDate);
-		$this->assertEquals($expectedDeletionDate, $deletionDate);
-		
-		$readDeletionDate = $this->userServiceMock->getDeletionDateTime('12004901000000000XXXXXXX');
-		$this->assertNotNull($readDeletionDate);
-		$this->assertEquals($expectedDeletionDate, $readDeletionDate);
+		$deletionDate = $this->userService->markDeletion($userId, $withdrawal);
+
+		$this->assertNotNull($deletionDate);
+		$this->assertSame($expected->getTimestamp(), $deletionDate->getTimestamp());
+
+		$this->assertSame($withdrawal->getTimestamp(), (int)$this->userValues[$userId]['withdrawal']);
+		$this->assertSame($expected->getTimestamp(), (int)$this->userValues[$userId]['deletion']);
+		$this->assertSame($withdrawal->getTimestamp(), (int)$this->userValues[$userId]['last_account_change']);
 	}
 
-	public function testUnmarkDeletionDefault() {
-		$this->config->expects($this->once())
-					->method("deleteUserValue")
-					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"));
-		$this->config->expects($this->once())
-					->method("getUserValue")
-					->with($this->equalTo('12004901000000000XXXXXXX'), Application::APP_ID, $this->equalTo("deletion"),
-						$this->equalTo(null))
-					->willReturn(null);
+	public function testOldWithdrawalGetsLocalSafetyDelay(): void {
+		$userId = '12004901000000000XXXXXXX';
+		$withdrawal = new \DateTimeImmutable('2021-08-03T16:05:06+00:00');
 
-		$deletionDate = $this->userServiceMock->unmarkDeletion('12004901000000000XXXXXXX');
-		$this->assertNull($this->userServiceMock->getDeletionDateTime('12004901000000000XXXXXXX'));
+		$this->appValues['userdeletionsafetydelay'] = 'P1D';
+
+		$before = time();
+		$deletionDate = $this->userService->markDeletion($userId, $withdrawal);
+		$after = time();
+
+		$this->assertNotNull($deletionDate);
+		$this->assertGreaterThanOrEqual($before + 86400, $deletionDate->getTimestamp());
+		$this->assertLessThanOrEqual($after + 86401, $deletionDate->getTimestamp());
+	}
+
+	public function testStaleWithdrawalIsRejected(): void {
+		$userId = '12004901000000000XXXXXXX';
+
+		$this->userValues[$userId]['last_account_change'] = (new \DateTimeImmutable('2030-08-04T00:00:00+00:00'))
+				->getTimestamp();
+
+		$result = $this->userService->markDeletion($userId, new \DateTimeImmutable('2030-08-03T00:00:00+00:00'));
+
+		$this->assertNull($result);
+		$this->assertArrayNotHasKey('deletion', $this->userValues[$userId]);
+	}
+
+	public function testUnmarkDeletionRemovesDeletionMetadataButKeepsOrdering(): void {
+		$userId = '12004901000000000XXXXXXX';
+		$this->userValues[$userId] = [
+			'deletion' => 10,
+			'withdrawal' => 9,
+			'deletion_marked_at' => 8,
+			'last_account_change' => 9,
+		];
+
+		$this->userService->unmarkDeletion($userId);
+
+		$this->assertArrayNotHasKey('deletion', $this->userValues[$userId]);
+		$this->assertArrayNotHasKey('withdrawal', $this->userValues[$userId]);
+		$this->assertArrayNotHasKey('deletion_marked_at', $this->userValues[$userId]);
+		$this->assertSame(9, $this->userValues[$userId]['last_account_change']);
+	}
+
+	private function configureInMemoryUserValues(): void {
+		$this->config->method('getUserValue')
+			->willReturnCallback(function ($userId, $appId, $key, $default = null) { return $this->userValues[$userId][$key] ?? $default; });
+
+		$this->config->method('setUserValue')
+			->willReturnCallback(function ($userId, $appId, $key, $value): void { $this->userValues[$userId][$key] = $value; });
+
+		$this->config->method('deleteUserValue')
+			->willReturnCallback(function ($userId, $appId, $key): void { unset($this->userValues[$userId][$key]); });
 	}
 }

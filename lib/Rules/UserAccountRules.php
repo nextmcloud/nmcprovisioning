@@ -12,26 +12,25 @@ use Psr\Log\LoggerInterface;
 
 class UserAccountRules {
 
-	/** @var LoggerInterface */
-	private $logger;
+	private const BOOKING_CLAIM = 'urn:telekom.com:f556';
+	private const LOCK_CLAIM = 'urn:telekom.com:s556';
+	private const PRESERVE_CLAIM = 'urn:telekom.com:f734';
+	private const USTA_CLAIM = 'urn:telekom.com:usta';
+	private const CHANGE_TIME_CLAIM = 'changeTime';
 
-	/** @var IConfig */
-	private $config;
+	private IConfig $config;
+	private LoggerInterface $logger;
+	private NmcUserService $nmcUserService;
+	private IUserManager $userManager;
+	private ProviderMapper $oidcProviderMapper;
 
-	/** @var NmcUserService */
-	private $nmcUserService;
-
-	/** @var IUserManager */
-	private $userManager;
-
-	/** @var ProviderMapper */
-	private $oidcProviderMapper;
-
-	public function __construct(IConfig $config,
+	public function __construct(
+		IConfig $config,
 		LoggerInterface $logger,
 		NmcUserService $nmcUserService,
-		IUserManager   $userManager,
-		ProviderMapper $oidcProviderMapper) {
+		IUserManager $userManager,
+		ProviderMapper $oidcProviderMapper
+	) {
 		$this->config = $config;
 		$this->logger = $logger;
 		$this->nmcUserService = $nmcUserService;
@@ -39,202 +38,335 @@ class UserAccountRules {
 		$this->oidcProviderMapper = $oidcProviderMapper;
 	}
 
-	/**
-	 * Check whether NextMagentaCloud product is booked on customer.
-	 */
-	public function isBooked($claims) {
-		if (property_exists($claims, 'urn:telekom.com:f556') && ($claims->{'urn:telekom.com:f556'} == "1")) {
-			return true;
+	// true = booked, false = withdrawn, null = claim missing.
+	public function getBookingState(object $claims): ?bool {
+		if (!property_exists($claims, self::BOOKING_CLAIM)) {
+			return null;
 		}
-		return false;
+		return (string)$claims->{self::BOOKING_CLAIM} === '1';
 	}
 
-	/**
-	 * Check whether NextMagentaCloud product is booked on customer.
-	 */
-	public function isTelekomPreserveProcess($claims) {
-		if (property_exists($claims, 'urn:telekom.com:f734') && ($claims->{'urn:telekom.com:f734'} == "1")) {
-			return true;
-		}
-		return false;
+	public function isBooked(object $claims): bool {
+		return $this->getBookingState($claims) === true;
 	}
 
-	/**
-	 * Check whether NextMagentaCloud product is requested
-	 * by an Over The Top customer
-	 */
-	public function isOTTCustomer($claims) {
-		if (property_exists($claims, 'urn:telekom.com:usta') && ($claims->{'urn:telekom.com:usta'} == "1")) {
-			return true;
-		}
-		return false;
+	public function isTelekomPreserveProcess(object $claims): bool {
+		return property_exists($claims, self::PRESERVE_CLAIM) && (string)$claims->{self::PRESERVE_CLAIM} === '1';
 	}
 
-	/**
-	 * Check whether NextMagentaCloud product is requested
-	 * by an Access Customer
-	 */
-	public function isAccessCustomer($claims) {
-		if (property_exists($claims, 'urn:telekom.com:usta') && ($claims->{'urn:telekom.com:usta'} == "3")) {
-			return true;
-		}
-		return false;
+	public function isOTTCustomer(object $claims): bool {
+		return property_exists($claims, self::USTA_CLAIM) && (string)$claims->{self::USTA_CLAIM} === '1';
 	}
 
-
-	/**
-	 * Check whether NextMagentaCloud product is blocked
-	 */
-	public function isLocked($claims) {
-		if (property_exists($claims, 'urn:telekom.com:s556') && (strcmp($claims->{'urn:telekom.com:s556'}, "1") == 0)) {
-			return true;
-		}
-		return false;
+	public function isAccessCustomer(object $claims): bool {
+		return property_exists($claims, self::USTA_CLAIM) && (string)$claims->{self::USTA_CLAIM} === '3';
 	}
 
-	/**
-	 * Derive withdraw date from token claims
-	 */
-	public function withdrawDate($claims) : \DateTime {
-		if (property_exists($claims, 'changeTime')) {
-			return \DateTime::createFromFormat(\DateTimeInterface::ISO8601, $claims->changeTime);
-		} elseif (property_exists($claims, 'auth_time')) {
-			$withdrawTime = new \DateTime();
-			$withdrawTime->setTimestamp(intval($claims->auth_time));
-			return $withdrawTime;
-		} else {
-			return new \DateTime(); // now
-		}
+	public function isLocked(object $claims): bool {
+		return property_exists($claims, self::LOCK_CLAIM) && (string)$claims->{self::LOCK_CLAIM} === '1';
 	}
 
-	/**
-	 * @param string $displayname
-	 * @param string $testParam
-	 * @return bool
-	 */
-	public function isTestAccount(string $displayname, string $testParam = "-test", string $explodeParam = "@"): bool {
-		$explode = (str_contains($explodeParam, $displayname)) ? explode($explodeParam, $displayname) : $displayname;
-		if (is_array($explode)) {
-			return str_contains($explode[0], $testParam);
-		} else {
-			return str_contains($explode, $testParam);
+	// changeTime is authoritative. Never use auth_time for retention.
+	public function withdrawDate(object $claims): ?\DateTimeImmutable {
+		if (!property_exists($claims, self::CHANGE_TIME_CLAIM)) {
+			return null;
 		}
+
+		$value = trim((string)$claims->{self::CHANGE_TIME_CLAIM});
+		if ($value === '') {
+			return null;
+		}
+
+		$formats = [
+			'Y-m-d\TH:i:s.vP',
+			'Y-m-d\TH:i:s.uP',
+			\DateTimeInterface::ATOM,
+			\DateTimeInterface::ISO8601,
+			'Y-m-d\TH:i:s.v\Z',
+			'Y-m-d\TH:i:s\Z',
+		];
+
+		foreach ($formats as $format) {
+			$date = \DateTimeImmutable::createFromFormat($format, $value);
+			$errors = \DateTimeImmutable::getLastErrors();
+
+			if ($date !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
+				return $date;
+			}
+		}
+
+		return null;
 	}
 
-	/**
-	 *
-	 * You can adopt the redirect URLs for "Telekom erhalten" with:
-	 * `sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userpreserveurl --value 'https://telekom.example.com/'
-	 *
-	 * and the redirect for general decommissioned accounts with:
-	 * `sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userratesurl --value "https://cloud.telekom-dienste.de/tarife"`
-	 */
-	public function deriveAccountState(string $uid, ?string $displayname, ?string $mainEmail,
-		string $quota, object $claims, bool $create = true, $providerName = 'Telekom'): array {
+	public function isTestAccount(string $displayname, string $testParam = '-test', string $explodeParam = '@'): bool {
+		if ($testParam === '') {
+			return false;
+		}
+
+		$name = $displayname;
+		if ($explodeParam !== '' && str_contains($displayname, $explodeParam)) {
+			$name = explode($explodeParam, $displayname, 2)[0];
+		}
+
+		return str_contains($name, $testParam);
+	}
+
+	public function deriveAccountState(
+		string $uid,
+		?string $displayname,
+		?string $mainEmail,
+		string $quota,
+		object $claims,
+		bool $create = true,
+		string $providerName = 'Telekom'
+	): array {
 		$this->logger->info("PROV {$uid}: Check user existence");
-		$this->logger->debug("Account change event: " . json_encode(get_object_vars($claims)));
-		$this->logger->debug("Provider {$uid}: " . $providerName);
-		$config = $this->config->getSystemValue('nmc_provisioning', [
+		$this->logger->debug("PROV {$uid}: Provider", ['provider' => $providerName]);
+
+		$defaults = [
 			'slup_test_account_check' => true,
 			'slup_test_account_name' => '-test',
-			'slup_test_account_explode' => '@'
-		]);
-		if ($user = $this->nmcUserService->userExists($providerName, $uid, true)) {
+			'slup_test_account_explode' => '@',
+		];
+
+		$config = $this->config->getSystemValue('nmc_provisioning', $defaults);
+		$config = is_array($config) ? array_replace($defaults, $config) : $defaults;
+
+		$user = $this->nmcUserService->userExists($providerName, $uid, true);
+		if ($user) {
 			$this->logger->info("PROV {$uid}: Modify existing");
 			return $this->deriveExistingAccountState($user, $displayname, $mainEmail, $quota, $claims, $providerName);
-		} elseif ($create || $config['slup_test_account_check'] &&
-			$this->isTestAccount($displayname, $config['slup_test_account_name'], $config['slup_test_account_explode'])) {
+		}
+
+		$isTestAccount = (bool)$config['slup_test_account_check']
+			&& $displayname !== null
+			&& $this->isTestAccount(
+				$displayname,
+				(string)$config['slup_test_account_name'],
+				(string)$config['slup_test_account_explode']
+			);
+
+		if ($create || $isTestAccount) {
 			$this->logger->info("PROV {$uid}: Create");
 			return $this->deriveNewAccountState($uid, $displayname, $mainEmail, $quota, $claims, $providerName);
-		} else {
-			$this->logger->info("PROV {$uid}: No create");
-			return array('allowed' => true, 'reason' => 'No create - please login with the user', 'changed' => true);
 		}
+
+		$this->logger->info("PROV {$uid}: No create");
+
+		return [
+			'allowed' => true,
+			'reason' => 'No create - please login with the user',
+			'changed' => true,
+		];
 	}
 
-	/**
-	 * The flag evaluation behaves different if a user does not exist and has to be created.
-	 *
-	 * In many negative cases, no user account is created at all.
-	 */
-	protected function deriveNewAccountState(string $uid, ?string $displayname, ?string $mainEmail,
-		string     $quota, object $claims, $providerName) : array {
-		if (is_null($displayname)) {
+	protected function deriveNewAccountState(
+		string $uid,
+		?string $displayname,
+		?string $mainEmail,
+		string $quota,
+		object $claims,
+		string $providerName
+	): array {
+		if ($displayname === null) {
 			$this->logger->error("{$uid}: New user without displayName");
-			return array('allowed' => false, 'reason' => 'No displayname no new account', 'changed' => false);
+
+			return [
+				'allowed' => false,
+				'reason' => 'No displayname no new account',
+				'changed' => false,
+			];
 		}
 
 		if ($this->isLocked($claims)) {
-			// user is locked due to abuse
-			$this->logger->info("{$uid}: New user with lock state, no user created");
-			return array('allowed' => false, 'reason' => 'Locked no new account', 'changed' => false);
+			$this->logger->info("{$uid}: New user locked, no user created");
+
+			return [
+				'allowed' => false,
+				'reason' => 'Locked no new account',
+				'changed' => false,
+			];
 		}
 
-		if (!$this->isBooked($claims)) {
-			$this->logger->info("{$uid}: New user without MagentaCloud tariff, no user created");
-			$withdrawUrl = $this->config->getAppValue('nmcprovisioning', 'userwithdrawurl',
-				"https://cloud.telekom-dienste.de/tarife");
-			return array('allowed' => false, 'reason' => 'No tariff no new account', 'changed' => false, 'redirect' => $withdrawUrl);
+		$bookingState = $this->getBookingState($claims);
+		if ($bookingState !== true) {
+			$this->logger->info(
+				$bookingState === null
+					? "{$uid}: New user without tariff claim, no user created"
+					: "{$uid}: New user without MagentaCloud tariff, no user created"
+			);
+
+			return [
+				'allowed' => false,
+				'reason' => $bookingState === null ? 'Missing tariff claim no new account' : 'No tariff no new account',
+				'changed' => false,
+				'redirect' => $this->config->getAppValue(
+					'nmcprovisioning',
+					'userwithdrawurl',
+					'https://cloud.telekom-dienste.de/tarife'
+				),
+			];
 		}
 
 		$this->nmcUserService->create($providerName, $uid, $displayname, $mainEmail, $quota);
+
+		$changeTime = $this->withdrawDate($claims);
+		if ($changeTime !== null) {
+			$this->nmcUserService->recordAccountChangeTime($uid, $changeTime);
+		}
+
 		$this->logger->info("{$uid}: New user created");
-		return array('allowed' => true, 'reason' => 'Created', 'changed' => true);
+
+		return [
+			'allowed' => true,
+			'reason' => 'Created',
+			'changed' => true,
+		];
 	}
 
-	/**
-	 * The flag evaluation behaves different if a user does not exist and has to be created.
-	 *
-	 * Many negative cases impact account only on update.
-	 */
-	public function deriveExistingAccountState(User|IUser $user, ?string $displayname, ?string $mainEmail,
-		string $quota, object $claims, $providerName = 'Telekom') : array {
-		if ($this->isLocked($claims)) {
-			// user is locked due to abuse
-			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
-			$this->logger->info("{$user->getUID()}: User locked");
-			return array('allowed' => false, 'reason' => 'Locked', 'changed' => true);
-		}
+	public function deriveExistingAccountState(
+		User|IUser $user,
+		?string $displayname,
+		?string $mainEmail,
+		string $quota,
+		object $claims,
+		string $providerName = 'Telekom'
+	): array {
+		$uid = $user->getUID();
+		$bookingState = $this->getBookingState($claims);
+		$changeTime = $this->withdrawDate($claims);
 
-		if ($this->isBooked($claims)) {
-			// user may has been marked for deletion before re-vitalizing account
-			$this->nmcUserService->unmarkDeletion($user->getUID());
-			$deletionMark = $this->nmcUserService->getDeletionDateTime($user->getUID());
-			// check deletion mark and log error in case
-			if ($deletionMark == null) {
-				$this->logger->info("{$user->getUID()}: Deletion mark removed.");
-			} else {
-				$this->logger->error("{$user->getUID()}: Deletion active after reactivation for " . $deletionMark->format(\DateTimeInterface::ISO8601));
+		if ($bookingState === true) {
+			if ($changeTime !== null && $this->nmcUserService->isStaleAccountChange($uid, $changeTime)) {
+				$this->logger->warning("{$uid}: Stale booked event ignored.");
+
+				return [
+					'allowed' => $user->isEnabled(),
+					'reason' => 'Stale booked event ignored',
+					'changed' => false,
+				];
 			}
 
-			// update case
-			// user is active and gets update
-			//TODO Check is update required????
+			$this->nmcUserService->unmarkDeletion($uid);
+
+			if ($changeTime !== null) {
+				$this->nmcUserService->recordAccountChangeTime($uid, $changeTime);
+			}
+
+			if ($this->isLocked($claims)) {
+				$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
+				$this->logger->info("{$uid}: User booked but locked; deletion cancelled.");
+
+				return [
+					'allowed' => false,
+					'reason' => 'Locked',
+					'changed' => true,
+				];
+			}
+
 			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, true);
-			return array('allowed' => true, 'reason' => 'Updated', 'changed' => true);
-		} else {
-			$withdrawDate = $this->withdrawDate($claims);
-			$deletionDate = $this->nmcUserService->markDeletion($user->getUID(), $withdrawDate);
-			$this->logger->info("{$user->getUID()}: Withdrawn at " . $withdrawDate->format(\DateTimeInterface::ISO8601) .
-								", deletion=" . $deletionDate->format(\DateTimeInterface::ISO8601));
-			// lock and latest update of user data
+
+			return [
+				'allowed' => true,
+				'reason' => 'Updated',
+				'changed' => true,
+			];
+		}
+
+		// Locking alone must never schedule deletion.
+		if ($this->isLocked($claims)) {
+			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
+			$this->logger->info("{$uid}: User locked");
+
+			return [
+				'allowed' => false,
+				'reason' => 'Locked',
+				'changed' => true,
+			];
+		}
+
+		// Missing tariff state is not a confirmed withdrawal.
+		if ($bookingState === null) {
+			$this->nmcUserService->unmarkDeletion($uid);
 			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
 
-			if ($this->isTelekomPreserveProcess($claims)) {
-				$redirect = $this->config->getAppValue('nmcprovisioning', 'userpreserveurl',
-					'https://telekom.example.com/');
-			} elseif ($this->isOTTCustomer($claims)) {
-				$redirect = $this->config->getAppValue('nmcprovisioning', 'userotturl',
-					'https://telekom.example.com/');
-			} elseif ($this->isAccessCustomer($claims)) {
-				$redirect = $this->config->getAppValue('nmcprovisioning', 'useraccessurl',
-					'https://telekom.example.com/');
-			} else {
-				$redirect = $this->config->getAppValue('nmcprovisioning', 'userwithdrawurl',
-					'https://cloud.telekom-dienste.de/tarife');
-			}
+			$this->logger->warning("{$uid}: f556 missing. Deletion not scheduled.");
 
-			return array('allowed' => false, 'reason' => 'Withdrawn', 'changed' => true, 'redirect' => $redirect);
+			return $this->withdrawResult('Missing tariff claim - deletion not scheduled', $claims, true);
 		}
+
+		// Withdrawal needs a valid authoritative timestamp.
+		if ($changeTime === null) {
+			$this->nmcUserService->unmarkDeletion($uid);
+			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
+
+			$this->logger->error("{$uid}: Withdrawal without valid changeTime. Deletion not scheduled.");
+
+			return $this->withdrawResult('Withdrawn without valid changeTime - deletion not scheduled', $claims, true);
+		}
+
+		if ($this->nmcUserService->isStaleAccountChange($uid, $changeTime)) {
+			$this->logger->warning("{$uid}: Stale withdrawal ignored at " . $changeTime->format(\DateTimeInterface::ATOM));
+
+			return [
+				'allowed' => $user->isEnabled(),
+				'reason' => 'Stale withdrawal event ignored',
+				'changed' => false,
+			];
+		}
+
+		try {
+			$deletionDate = $this->nmcUserService->markDeletion($uid, $changeTime);
+		} catch (\Throwable $e) {
+			$this->nmcUserService->unmarkDeletion($uid);
+			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
+
+			$this->logger->critical("{$uid}: Failed to schedule deletion safely.", [
+				'exception' => $e,
+			]);
+
+			return $this->withdrawResult('Deletion scheduling failed safely', $claims, true);
+		}
+
+		if ($deletionDate === null) {
+			$this->logger->warning("{$uid}: Withdrawal lost race with newer state.");
+
+			return [
+				'allowed' => $user->isEnabled(),
+				'reason' => 'Stale withdrawal event ignored',
+				'changed' => false,
+			];
+		}
+
+		$this->logger->info(
+			"{$uid}: Withdrawn at {$changeTime->format(\DateTimeInterface::ATOM)}, deletion={$deletionDate->format(\DateTimeInterface::ATOM)}"
+		);
+
+		$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
+
+		return $this->withdrawResult('Withdrawn', $claims, true);
+	}
+
+	private function withdrawResult(string $reason, object $claims, bool $changed): array {
+		if ($this->isTelekomPreserveProcess($claims)) {
+			$redirect = $this->config->getAppValue('nmcprovisioning', 'userpreserveurl', 'https://telekom.example.com/');
+		} elseif ($this->isOTTCustomer($claims)) {
+			$redirect = $this->config->getAppValue('nmcprovisioning', 'userotturl', 'https://telekom.example.com/');
+		} elseif ($this->isAccessCustomer($claims)) {
+			$redirect = $this->config->getAppValue('nmcprovisioning', 'useraccessurl', 'https://telekom.example.com/');
+		} else {
+			$redirect = $this->config->getAppValue(
+				'nmcprovisioning',
+				'userwithdrawurl',
+				'https://cloud.telekom-dienste.de/tarife'
+			);
+		}
+
+		return [
+			'allowed' => false,
+			'reason' => $reason,
+			'changed' => $changed,
+			'redirect' => $redirect,
+		];
 	}
 }
