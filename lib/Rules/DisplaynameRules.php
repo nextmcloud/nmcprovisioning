@@ -20,7 +20,7 @@ class DisplaynameRules {
 				continue;
 			}
 
-			$fields = array_map(static fn(string $field): string => 'urn:telekom.com:' . $field, $search);
+			$fields = array_map(static fn (string $field): string => 'urn:telekom.com:' . $field, $search);
 
 			$allFieldsMatch = array_reduce($fields, static function (bool $carry, string $field) use ($claims): bool {
 				return $carry && property_exists($claims, $field);
@@ -31,7 +31,7 @@ class DisplaynameRules {
 			}
 
 			$displayName = implode(' ', array_map(
-				static fn(string $field): string => (string)$claims->{$field},
+				static fn (string $field): string => (string)$claims->{$field},
 				$fields
 			));
 
