@@ -4,101 +4,60 @@ namespace OCA\NextMagentaCloudProvisioning\Rules;
 
 use OCA\NextMagentaCloudProvisioning\Logger\ProvisioningLogger;
 
-/**
- * The generic tariff rules evaluator
- */
 class TariffRules {
 
 	private GroupTariffMapping $groupTariffMapping;
-
-	/** @var ProvisioningLogger */
 	private ProvisioningLogger $provisioningLogger;
-
 
 	public function __construct(GroupTariffMapping $groupTariffMapping, ProvisioningLogger $provisioningLogger) {
 		$this->groupTariffMapping = $groupTariffMapping;
 		$this->provisioningLogger = $provisioningLogger;
 	}
 
-	/**
-	 * Quota computation helper function to check
-	 * claims contain none of the configured flags
-	 *
-	 * For random combinations of tariffs where even one of
-	 * the flaged tariffs can be 0, the case must be explixitly checked
-	 * and cannot be used as default.
-	 */
-	private function quotaNoFlags(object $claims, $tariffs) {
-		$anyFlagSet = array_reduce($tariffs, function ($carry, $tariff) use ($claims) {
-			if (array_key_exists('flag', $tariff) && ($carry == false)) {
-				return $this->isQuotaFlagSet($claims, $tariff);
-			} else {
+	private function quotaNoFlags(object $claims, array $tariffs): string {
+		$anyFlagSet = array_reduce($tariffs, function (bool $carry, array $tariff) use ($claims): bool {
+			if ($carry || !array_key_exists('flag', $tariff)) {
 				return $carry;
 			}
+			return $this->isQuotaFlagSet($claims, $tariff);
 		}, false);
 
-		if (!$anyFlagSet) {
-			// make sure that a quota >0 is only delivered
-			// for the NOFLAGS case if actually no flags are set
-			// Otherwise, all quotas < the NOFLAGS quota will not apply
-			return $tariffs['NOFLAGS']['space_limit'];
-		} else {
-			return "0 B";
-		}
+		return $anyFlagSet ? '0 B' : $tariffs['NOFLAGS']['space_limit'];
 	}
 
-
-	/**
-	 * Get the quota if a flag is set
-	 * The function does assume that the flag field exists
-	 */
-	private function isQuotaFlagSet(object $claims, $tariff) {
-		$flagname = $tariff['flag'];
-		if (property_exists($claims, $flagname) &&
-				$claims->{$flagname} === "1") {
-			return true;
-		} else {
-			return false;
-		}
+	private function isQuotaFlagSet(object $claims, array $tariff): bool {
+		$flagName = $tariff['flag'];
+		return property_exists($claims, $flagName) && (string)$claims->{$flagName} === '1';
 	}
 
-	/**
-	 * Compute the maximum of two quotas given
-	 * Nextcloud human readable storage sizes
-	 */
-	private function maxQuota(string $left, string $right) {
-		$leftBytes = \OCP\Util::computerFileSize($left);
-		$rightBytes = \OCP\Util::computerFileSize($right);
-		if ($leftBytes > $rightBytes) {
-			return $left;
-		} else {
-			return $right;
-		}
+	private function maxQuota(string $left, string $right): string {
+		return \OCP\Util::computerFileSize($left) > \OCP\Util::computerFileSize($right) ? $left : $right;
 	}
 
-	/**
-	 * Central rule to derive quota
-	 * consistently from SAM/SLUP fields
-	 */
-	public function deriveQuota(object $claims) {
+	public function deriveQuota(object $claims): string {
 		$tariffs = $this->groupTariffMapping->getGroupMapping();
 
-		// for each flag that is set: add the quota limit
-		$quotaCandidates = array_map(function ($tariff) use ($claims, $tariffs) {
-			if (array_key_exists('flag', $tariff)) {
-				return $this->isQuotaFlagSet($claims, $tariff) ? $tariff['space_limit'] : "0 B";
-			} else {
-				// skip the "no flags" case
-				// it is the deafult value of reduce
-				return "0 B";
+		$quotaCandidates = array_map(function (array $tariff) use ($claims): string {
+			if (!array_key_exists('flag', $tariff)) {
+				return '0 B';
 			}
+			return $this->isQuotaFlagSet($claims, $tariff) ? $tariff['space_limit'] : '0 B';
 		}, $tariffs);
 
-		$noflagsQuota = $this->quotaNoFlags($claims, $tariffs);
-		$maxQuota = array_reduce($quotaCandidates, array($this, 'maxQuota'), $noflagsQuota);
+		$maxQuota = array_reduce($quotaCandidates, [$this, 'maxQuota'], $this->quotaNoFlags($claims, $tariffs));
 
-		// Return the max quota limit as human readable unit
-		// as it is standard in Nextcloud
+		$activeFlagCount = 0;
+		foreach ($tariffs as $tariff) {
+			if (array_key_exists('flag', $tariff) && $this->isQuotaFlagSet($claims, $tariff)) {
+				$activeFlagCount++;
+			}
+		}
+
+		$this->provisioningLogger->debug('Derived quota from tariff claims', [
+			'activeFlagCount' => $activeFlagCount,
+			'quota' => $maxQuota,
+		]);
+
 		return $maxQuota;
 	}
 }
