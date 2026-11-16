@@ -24,10 +24,8 @@ on:
       - main
       - master
       - stable*
-    
-  tags:
-    - nmc*
-
+    tags:
+      - nmc*
 
 permissions:
   contents: read
@@ -95,7 +93,7 @@ jobs:
           files: apps/${{ env.APP_NAME }}/composer.json
 
       - name: Set up dependencies
-        # Only run if phpunit config file exists
+        # Only run if composer.json exists
         if: steps.check_composer.outputs.files_exists == 'true'
         working-directory: apps/${{ env.APP_NAME }}
         run: composer i
@@ -116,7 +114,7 @@ jobs:
           composer run --list | grep "^  test:unit " | wc -l | grep 1
 
       - name: PHPUnit
-        # Only run if phpunit config file exists
+        # Only run if unit test script exists
         if: steps.check_phpunit.outcome == 'success'
         working-directory: apps/${{ env.APP_NAME }}
         run: composer run test:unit
@@ -129,12 +127,12 @@ jobs:
           composer run --list | grep "^  test:integration " | wc -l | grep 1
 
       - name: Run Nextcloud
-        # Only run if phpunit integration config file exists
+        # Only run if integration test script exists
         if: steps.check_integration.outcome == 'success'
         run: php -S localhost:8080 &
 
       - name: PHPUnit integration
-        # Only run if phpunit integration config file exists
+        # Only run if integration test script exists
         if: steps.check_integration.outcome == 'success'
         working-directory: apps/${{ env.APP_NAME }}
         run: composer run test:integration
