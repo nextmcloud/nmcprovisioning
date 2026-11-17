@@ -23,10 +23,8 @@ on:
         description: Branch to build a package from
         options: 
           - master
-          - stable25
-          - stable26
-          - stable27
-          - stable28
+          - stable33
+          - stable33-custom
       increment:
         description: 'Release increment'
         required: true
