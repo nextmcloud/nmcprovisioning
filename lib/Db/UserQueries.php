@@ -1,4 +1,7 @@
 <?php
+
+declare(strict_types=1);
+
 /**
  * @copyright Copyright (c) 2026, T-Systems International GmbH
  * @author Bernd Rederlechner <Bernd.Rederlechner@t-systems.com>
@@ -6,8 +9,6 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-
-declare(strict_types=1);
 
 namespace OCA\NextMagentaCloudProvisioning\Db;
 
