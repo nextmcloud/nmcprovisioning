@@ -1,37 +1,28 @@
 <?php
 
 declare(strict_types=1);
+
 /**
- * @copyright Copyright (c) 2020, Roeland Jago Douma <roeland@famdouma.nl>
- *
+ * @copyright Copyright (c) 2026, T-Systems International GmbH
  * @author Bernd Rederlechner <Bernd.Rederlechner@t-systems.com>
+ * @author Mauro Mura <mauro-efisio.mura@t-systems.de>
  *
- * @license GNU AGPL version 3 or any later version
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 namespace OCA\NextMagentaCloudProvisioning\Db;
 
 use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
-
 use OCP\DB\QueryBuilder\IQueryBuilder;
-
 use OCP\IDBConnection;
 
 class UserQueries {
+	private const DELETION_KEYS = [
+		'deletion',
+		'withdrawal',
+		'deletion_marked_at',
+	];
+
 	/** @var IDBConnection */
 	private $db;
 
@@ -40,19 +31,20 @@ class UserQueries {
 	}
 
 	/**
-	 * Find all users marked for deletion with a deletion date
-	 * before $refDate.
+	 * Find the oldest users whose deletion date has been reached.
+	 *
+	 * @return string[]
 	 */
-	public function findDeletions(\DateTime $refDate, ?int $limit = null): array {
+	public function findDeletions(\DateTimeInterface $refDate, ?int $limit = null): array {
 		$refTs = $refDate->getTimestamp();
-
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('userid')
 			->from('preferences')
 			->where($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
 			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
-			->andWhere($qb->expr()->lt('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT)))
-			->orderBy('configvalue', 'ASC');
+			->andWhere($qb->expr()->lte('configvalue', $qb->createNamedParameter($refTs, IQueryBuilder::PARAM_INT)))
+			->orderBy('configvalue', 'ASC')
+			->addOrderBy('userid', 'ASC');
 
 		if ($limit !== null) {
 			$qb->setMaxResults($limit);
@@ -70,55 +62,149 @@ class UserQueries {
 		return $uids;
 	}
 
-	public function getDeletionDateTime(string $userId): ?\DateTime {
+	public function getDeletionDateTime(string $userId): ?\DateTimeImmutable {
+		return $this->getPreferenceDateTime($userId, 'deletion');
+	}
+
+	/**
+	 * Return the deletion state in one database query so the background job can
+	 * validate the decision immediately before the irreversible delete().
+	 *
+	 * @return array{
+	 *     deletion: \DateTimeImmutable,
+	 *     withdrawal: ?\DateTimeImmutable,
+	 *     lastAccountChange: ?\DateTimeImmutable
+	 * }|null
+	 */
+	public function getDeletionState(string $userId): ?array {
+		$qb = $this->db->getQueryBuilder();
+		$keyExpression = $qb->expr()->orX(
+			$qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')),
+			$qb->expr()->eq('configkey', $qb->createNamedParameter('withdrawal')),
+			$qb->expr()->eq('configkey', $qb->createNamedParameter('last_account_change'))
+		);
+
+		$qb->select('configkey', 'configvalue')
+			->from('preferences')
+			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
+			->andWhere($keyExpression);
+
+		$result = $qb->execute();
+
+		$values = [];
+		while ($row = $result->fetch()) {
+			$values[(string)$row['configkey']] = $row['configvalue'];
+		}
+
+		$result->closeCursor();
+
+		$deletion = $this->dateTimeFromPreferenceValue($values['deletion'] ?? null);
+		if ($deletion === null) {
+			return null;
+		}
+
+		return [
+			'deletion' => $deletion,
+			'withdrawal' => $this->dateTimeFromPreferenceValue($values['withdrawal'] ?? null),
+			'lastAccountChange' => $this->dateTimeFromPreferenceValue($values['last_account_change'] ?? null),
+		];
+	}
+
+	/**
+	 * Remove only deletion-related provisioning state.
+	 *
+	 * last_account_change is intentionally retained so delayed events cannot
+	 * overwrite a newer state after deletion has been cancelled.
+	 *
+	 * deletion_marked_at is included for cleanup of values written by earlier
+	 * revisions of the hardening PR.
+	 */
+	public function deleteDeletionPreferencesById(string $userId): bool {
+		$qb = $this->db->getQueryBuilder();
+		$keyExpression = $qb->expr()->orX(
+			$qb->expr()->eq('configkey', $qb->createNamedParameter(self::DELETION_KEYS[0])),
+			$qb->expr()->eq('configkey', $qb->createNamedParameter(self::DELETION_KEYS[1])),
+			$qb->expr()->eq('configkey', $qb->createNamedParameter(self::DELETION_KEYS[2]))
+		);
+
+		$qb->delete('preferences')
+			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
+			->andWhere($keyExpression)
+			->execute();
+
+		return true;
+	}
+
+	/**
+	 * Move a failed deletion attempt out of the current batch.
+	 */
+	public function postponeDeletion(string $userId, \DateTimeInterface $retryAt): bool {
+		$qb = $this->db->getQueryBuilder();
+		$qb->update('preferences')
+			->set('configvalue', $qb->createNamedParameter($retryAt->getTimestamp(), IQueryBuilder::PARAM_INT))
+			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
+			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
+			->execute();
+
+		return true;
+	}
+
+	public function countMigrated(): int {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select($qb->func()->count('*'))
+			->from('preferences')
+			->where($qb->expr()->eq('appid', $qb->createNamedParameter('nmcuser_oidc')))
+			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('migrated')));
+
+		$result = $qb->execute();
+		$column = (int)$result->fetchOne();
+		$result->closeCursor();
+
+		return $column;
+	}
+
+	/**
+	 * Delete all user preferences after the user itself has disappeared.
+	 */
+	public function deleteUserPreferenceById(string $userId): bool {
 		$qb = $this->db->getQueryBuilder();
 
+		$qb->delete('preferences')
+			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+			->execute();
+
+		return true;
+	}
+
+	private function getPreferenceDateTime(string $userId, string $key): ?\DateTimeImmutable {
+		$qb = $this->db->getQueryBuilder();
 		$qb->select('configvalue')
 			->from('preferences')
 			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
 			->andWhere($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
-			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')))
+			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter($key)))
 			->setMaxResults(1);
 
 		$result = $qb->execute();
 		$value = $result->fetchOne();
 		$result->closeCursor();
 
-		if ($value === false || $value === null || $value === '') {
+		return $this->dateTimeFromPreferenceValue($value);
+	}
+
+	private function dateTimeFromPreferenceValue(mixed $value): ?\DateTimeImmutable {
+		if ($value === false || $value === null || $value === '' || !is_numeric($value)) {
 			return null;
 		}
 
-		$deletionDate = new \DateTime();
-		$deletionDate->setTimestamp((int)$value);
+		$timestamp = (int)$value;
+		if ($timestamp <= 0) {
+			return null;
+		}
 
-		return $deletionDate;
-	}
-
-	public function countMigrated(): int {
-		$qb = $this->db->getQueryBuilder();
-		$qb->select($qb->func()->count('*'))
-			->from("preferences")
-			->where($qb->expr()->eq('appid', $qb->createNamedParameter('nmcuser_oidc')))
-			->andWhere($qb->expr()->eq('configkey', $qb->createNamedParameter('migrated')));
-		$result = $qb->execute();
-		$column = (int)$result->fetchOne();
-		$result->closeCursor();
-		return $column;
-	}
-
-	/**
-	 * Delete a user preference by their user ID
-	 *
-	 * @param string $userId
-	 * @return bool True if deletion was successful, false otherwise
-	 */
-	public function deleteUserPreferenceById(string $userId): bool {
-		$qb = $this->db->getQueryBuilder();
-		
-		$qb->delete('preferences')
-		->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
-		->execute();
-
-		return true; // Return true to indicate successful deletion
+		return (new \DateTimeImmutable())->setTimestamp($timestamp);
 	}
 }
