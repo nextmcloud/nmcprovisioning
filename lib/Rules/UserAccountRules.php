@@ -91,6 +91,16 @@ class UserAccountRules {
 			$errors = \DateTimeImmutable::getLastErrors();
 
 			if ($date !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
+				$now = new \DateTimeImmutable();
+
+				if ($date > $now) {
+					$this->logger->warning('Future changeTime received, clamping to current time', [
+						'changeTime' => $date->format(\DateTimeInterface::ATOM),
+						'now' => $now->format(\DateTimeInterface::ATOM),
+					]);
+					return $now;
+				}
+
 				return $date;
 			}
 		}
@@ -287,7 +297,6 @@ class UserAccountRules {
 
 		// Missing tariff state is not a confirmed withdrawal.
 		if ($bookingState === null) {
-			$this->nmcUserService->unmarkDeletion($uid);
 			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
 
 			$this->logger->warning("{$uid}: f556 missing. Deletion not scheduled.");
@@ -297,7 +306,6 @@ class UserAccountRules {
 
 		// Withdrawal needs a valid authoritative timestamp.
 		if ($changeTime === null) {
-			$this->nmcUserService->unmarkDeletion($uid);
 			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
 
 			$this->logger->error("{$uid}: Withdrawal without valid changeTime. Deletion not scheduled.");
@@ -318,7 +326,6 @@ class UserAccountRules {
 		try {
 			$deletionDate = $this->nmcUserService->markDeletion($uid, $changeTime);
 		} catch (\Throwable $e) {
-			$this->nmcUserService->unmarkDeletion($uid);
 			$this->nmcUserService->update($user, $displayname, $mainEmail, $quota, false);
 
 			$this->logger->critical("{$uid}: Failed to schedule deletion safely.", [

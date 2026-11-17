@@ -29,7 +29,6 @@ class UserQueries {
 	 */
 	public function findDeletions(\DateTimeInterface $refDate, ?int $limit = null): array {
 		$refTs = $refDate->getTimestamp();
-
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('userid')
 			->from('preferences')
@@ -60,26 +59,47 @@ class UserQueries {
 	}
 
 	/**
-	 * Return all metadata needed to validate a deletion decision.
+	 * Return the deletion state in one database query so the background job can
+	 * validate the decision immediately before the irreversible delete().
 	 *
 	 * @return array{
 	 *     deletion: \DateTimeImmutable,
 	 *     withdrawal: ?\DateTimeImmutable,
-	 *     markedAt: ?\DateTimeImmutable,
 	 *     lastAccountChange: ?\DateTimeImmutable
 	 * }|null
 	 */
 	public function getDeletionState(string $userId): ?array {
-		$deletion = $this->getPreferenceDateTime($userId, 'deletion');
+		$qb = $this->db->getQueryBuilder();
+		$keyExpression = $qb->expr()->orX(
+			$qb->expr()->eq('configkey', $qb->createNamedParameter('deletion')),
+			$qb->expr()->eq('configkey', $qb->createNamedParameter('withdrawal')),
+			$qb->expr()->eq('configkey', $qb->createNamedParameter('last_account_change'))
+		);
+
+		$qb->select('configkey', 'configvalue')
+			->from('preferences')
+			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->eq('appid', $qb->createNamedParameter(Application::APP_ID)))
+			->andWhere($keyExpression);
+
+		$result = $qb->execute();
+
+		$values = [];
+		while ($row = $result->fetch()) {
+			$values[(string)$row['configkey']] = $row['configvalue'];
+		}
+
+		$result->closeCursor();
+
+		$deletion = $this->dateTimeFromPreferenceValue($values['deletion'] ?? null);
 		if ($deletion === null) {
 			return null;
 		}
 
 		return [
 			'deletion' => $deletion,
-			'withdrawal' => $this->getPreferenceDateTime($userId, 'withdrawal'),
-			'markedAt' => $this->getPreferenceDateTime($userId, 'deletion_marked_at'),
-			'lastAccountChange' => $this->getPreferenceDateTime($userId, 'last_account_change'),
+			'withdrawal' => $this->dateTimeFromPreferenceValue($values['withdrawal'] ?? null),
+			'lastAccountChange' => $this->dateTimeFromPreferenceValue($values['last_account_change'] ?? null),
 		];
 	}
 
@@ -88,10 +108,12 @@ class UserQueries {
 	 *
 	 * last_account_change is intentionally retained so delayed events cannot
 	 * overwrite a newer state after deletion has been cancelled.
+	 *
+	 * deletion_marked_at is included for cleanup of values written by earlier
+	 * revisions of the hardening PR.
 	 */
 	public function deleteDeletionPreferencesById(string $userId): bool {
 		$qb = $this->db->getQueryBuilder();
-
 		$keyExpression = $qb->expr()->orX(
 			$qb->expr()->eq('configkey', $qb->createNamedParameter(self::DELETION_KEYS[0])),
 			$qb->expr()->eq('configkey', $qb->createNamedParameter(self::DELETION_KEYS[1])),
@@ -112,7 +134,6 @@ class UserQueries {
 	 */
 	public function postponeDeletion(string $userId, \DateTimeInterface $retryAt): bool {
 		$qb = $this->db->getQueryBuilder();
-
 		$qb->update('preferences')
 			->set('configvalue', $qb->createNamedParameter($retryAt->getTimestamp(), IQueryBuilder::PARAM_INT))
 			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
@@ -144,15 +165,14 @@ class UserQueries {
 		$qb = $this->db->getQueryBuilder();
 
 		$qb->delete('preferences')
-		->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
-		->execute();
+			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
+			->execute();
 
-		return true; // Return true to indicate successful deletion
+		return true;
 	}
 
 	private function getPreferenceDateTime(string $userId, string $key): ?\DateTimeImmutable {
 		$qb = $this->db->getQueryBuilder();
-
 		$qb->select('configvalue')
 			->from('preferences')
 			->where($qb->expr()->eq('userid', $qb->createNamedParameter($userId)))
@@ -164,6 +184,10 @@ class UserQueries {
 		$value = $result->fetchOne();
 		$result->closeCursor();
 
+		return $this->dateTimeFromPreferenceValue($value);
+	}
+
+	private function dateTimeFromPreferenceValue(mixed $value): ?\DateTimeImmutable {
 		if ($value === false || $value === null || $value === '' || !is_numeric($value)) {
 			return null;
 		}

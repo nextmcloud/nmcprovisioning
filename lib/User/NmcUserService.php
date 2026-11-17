@@ -23,12 +23,9 @@ use Psr\Log\LoggerInterface;
 class NmcUserService {
 	private const KEY_DELETION = 'deletion';
 	private const KEY_WITHDRAWAL = 'withdrawal';
-	private const KEY_DELETION_MARKED_AT = 'deletion_marked_at';
 	private const KEY_LAST_ACCOUNT_CHANGE = 'last_account_change';
 
 	private const DEFAULT_RETENTION = 'P60D';
-	private const DEFAULT_SAFETY_DELAY = 'P1D';
-
 
 	/** @var IUserManager */
 	private $userManager;
@@ -174,7 +171,19 @@ class NmcUserService {
 	 * replace a newer one.
 	 */
 	public function recordAccountChangeTime(string $userId, \DateTimeInterface $changeTime): bool {
-		$incomingTimestamp = $changeTime->getTimestamp();
+		$incoming = \DateTimeImmutable::createFromInterface($changeTime);
+		$now = new \DateTimeImmutable();
+
+		if ($incoming > $now) {
+			$this->logger->warning('Clamping future account change time to current time', [
+				'userId' => $userId,
+				'changeTime' => $incoming->format(\DateTimeInterface::ATOM),
+				'now' => $now->format(\DateTimeInterface::ATOM),
+			]);
+			$incoming = $now;
+		}
+
+		$incomingTimestamp = $incoming->getTimestamp();
 		$current = $this->getLastAccountChangeTime($userId);
 
 		if ($current !== null && $incomingTimestamp < $current->getTimestamp()) {
@@ -197,46 +206,52 @@ class NmcUserService {
 	/**
 	 * Mark a user for delayed deletion.
 	 *
-	 * The effective deletion date is the later of:
-	 *  - authoritative withdrawal time + configured retention period
-	 *  - first local observation of this withdrawal + safety delay
+	 * The deletion date is calculated from the later of the authoritative
+	 * withdrawal timestamp and the local observation time, plus the configured
+	 * retention period. This guarantees the full retention period even when an
+	 * old withdrawal event reaches this system late.
 	 *
-	 * The second condition prevents an old/replayed event from becoming
-	 * immediately destructive when it reaches this system for the first time.
+	 * Repeated delivery of the same withdrawal event is idempotent and keeps the
+	 * already scheduled deletion date.
 	 *
 	 * @return \DateTimeImmutable|null Null if the withdrawal event is stale.
 	 */
 	public function markDeletion(string $userId, \DateTimeInterface $withdrawTime): ?\DateTimeImmutable {
-		if ($this->isStaleAccountChange($userId, $withdrawTime)) {
+		$withdrawal = \DateTimeImmutable::createFromInterface($withdrawTime);
+		$now = new \DateTimeImmutable();
+
+		if ($withdrawal > $now) {
+			$this->logger->warning('Clamping future withdrawal time to current time', [
+				'userId' => $userId,
+				'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
+				'now' => $now->format(\DateTimeInterface::ATOM),
+			]);
+			$withdrawal = $now;
+		}
+
+		if ($this->isStaleAccountChange($userId, $withdrawal)) {
 			$this->logger->warning('Refusing stale withdrawal event', [
 				'userId' => $userId,
-				'withdrawTime' => $withdrawTime->format(\DateTimeInterface::ATOM),
+				'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
 				'lastAccountChange' => $this->getLastAccountChangeTime($userId)?->format(\DateTimeInterface::ATOM),
 			]);
 			return null;
 		}
 
-		$withdrawal = \DateTimeImmutable::createFromInterface($withdrawTime);
 		$existingWithdrawal = $this->getUserTimestamp($userId, self::KEY_WITHDRAWAL);
-		$existingMarkedAt = $this->getUserTimestamp($userId, self::KEY_DELETION_MARKED_AT);
+		$existingDeletion = $this->getDeletionDateTime($userId);
 
-		/*
-		 * Repeated delivery of the same event must not keep moving the local
-		 * safety window. For a genuinely newer withdrawal event, start a new
-		 * observation window.
-		 */
-		if ($existingWithdrawal !== null && $existingMarkedAt !== null && $existingWithdrawal->getTimestamp() === $withdrawal->getTimestamp()) {
-			$markedAt = $existingMarkedAt;
-		} else {
-			$markedAt = new \DateTimeImmutable();
+		if (
+			$existingWithdrawal !== null
+			&& $existingDeletion !== null
+			&& $existingWithdrawal->getTimestamp() === $withdrawal->getTimestamp()
+		) {
+			return $existingDeletion;
 		}
 
 		$retention = $this->getConfiguredInterval('userretention', self::DEFAULT_RETENTION);
-		$safetyDelay = $this->getConfiguredInterval('userdeletionsafetydelay', self::DEFAULT_SAFETY_DELAY);
-
-		$retentionDate = $withdrawal->add($retention);
-		$safetyDate = $markedAt->add($safetyDelay);
-		$deletionDate = $retentionDate > $safetyDate ? $retentionDate : $safetyDate;
+		$deletionBase = $withdrawal > $now ? $withdrawal : $now;
+		$deletionDate = $deletionBase->add($retention);
 
 		if (!$this->recordAccountChangeTime($userId, $withdrawal)) {
 			$this->logger->warning('Withdrawal became stale before it could be stored', [
@@ -249,33 +264,21 @@ class NmcUserService {
 		$this->logger->info('Marking user for delayed deletion', [
 			'userId' => $userId,
 			'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
-			'markedAt' => $markedAt->format(\DateTimeInterface::ATOM),
 			'deletionDate' => $deletionDate->format(\DateTimeInterface::ATOM),
 			'retention' => $this->config->getAppValue('nmcprovisioning', 'userretention', self::DEFAULT_RETENTION),
-			'safetyDelay' => $this->config->getAppValue('nmcprovisioning', 'userdeletionsafetydelay', self::DEFAULT_SAFETY_DELAY),
 		]);
 
 		/*
-		 * Write supporting metadata first and the actual deletion marker last.
-		 * A partially written state therefore cannot become eligible for the
-		 * deletion query.
+		 * Write the destructive marker before the supporting withdrawal metadata.
+		 * If the second write fails, last_account_change lets the deletion job
+		 * distinguish this incomplete new state from a legacy pre-PR marker and
+		 * fail safely.
 		 */
-		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL, $withdrawal->getTimestamp());
-		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_DELETION_MARKED_AT, $markedAt->getTimestamp());
 		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_DELETION, $deletionDate->getTimestamp());
+		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL, $withdrawal->getTimestamp());
 
-		/*
-		 * Narrow the race window with a concurrent reactivation/newer event.
-		 * If a newer state appeared while this method was writing, disarm the
-		 * deletion immediately. The deletion job performs the same check again.
-		 */
-		if ($this->isStaleAccountChange($userId, $withdrawal)) {
-			$this->logger->warning('Newer account state detected while marking deletion', [
-				'userId' => $userId,
-			]);
-			$this->unmarkDeletion($userId);
-			return null;
-		}
+		// Clean up metadata written by earlier revisions of this hardening PR.
+		$this->config->deleteUserValue($userId, Application::APP_ID, 'deletion_marked_at');
 
 		return $deletionDate;
 	}
@@ -290,7 +293,7 @@ class NmcUserService {
 	public function unmarkDeletion(string $userId): void {
 		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_DELETION);
 		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL);
-		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_DELETION_MARKED_AT);
+		$this->config->deleteUserValue($userId, Application::APP_ID, 'deletion_marked_at');
 	}
 
 	/**
