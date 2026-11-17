@@ -40,7 +40,6 @@ class UserWithdrawTest extends TestCase {
 
 		$this->appValues = [
 			'userretention' => 'P60D',
-			'userdeletionsafetydelay' => 'PT0S',
 		];
 
 		$this->config->method('getAppValue')
@@ -83,43 +82,78 @@ class UserWithdrawTest extends TestCase {
 		$this->assertNull($this->accountService->withdrawDate(new \stdClass()));
 	}
 
-	public function testMarkDeletionDefaultRetention(): void {
+	public function testOldWithdrawalGetsFullRetentionFromLocalObservation(): void {
 		$userId = '12004901000000000XXXXXXX';
-		$withdrawal = new \DateTimeImmutable('2030-08-03T16:05:06+00:00');
-		$expected = $withdrawal->add(new \DateInterval('P60D'));
+		$withdrawal = new \DateTimeImmutable('2021-08-03T16:05:06+00:00');
+		$retention = new \DateInterval('P60D');
 
+		$before = new \DateTimeImmutable();
 		$deletionDate = $this->userService->markDeletion($userId, $withdrawal);
+		$after = new \DateTimeImmutable();
 
 		$this->assertNotNull($deletionDate);
-		$this->assertSame($expected->getTimestamp(), $deletionDate->getTimestamp());
+		$this->assertGreaterThanOrEqual($before->add($retention)->getTimestamp(), $deletionDate->getTimestamp());
+		$this->assertLessThanOrEqual($after->add($retention)->getTimestamp(), $deletionDate->getTimestamp());
 
 		$this->assertSame($withdrawal->getTimestamp(), (int)$this->userValues[$userId]['withdrawal']);
-		$this->assertSame($expected->getTimestamp(), (int)$this->userValues[$userId]['deletion']);
 		$this->assertSame($withdrawal->getTimestamp(), (int)$this->userValues[$userId]['last_account_change']);
+		$this->assertArrayNotHasKey('deletion_marked_at', $this->userValues[$userId]);
 	}
 
-	public function testOldWithdrawalGetsLocalSafetyDelay(): void {
+	public function testRepeatedWithdrawalKeepsExistingDeletionDate(): void {
 		$userId = '12004901000000000XXXXXXX';
 		$withdrawal = new \DateTimeImmutable('2021-08-03T16:05:06+00:00');
 
-		$this->appValues['userdeletionsafetydelay'] = 'P1D';
+		$firstDeletionDate = $this->userService->markDeletion($userId, $withdrawal);
+		$secondDeletionDate = $this->userService->markDeletion($userId, $withdrawal);
 
-		$before = time();
-		$deletionDate = $this->userService->markDeletion($userId, $withdrawal);
-		$after = time();
+		$this->assertNotNull($firstDeletionDate);
+		$this->assertNotNull($secondDeletionDate);
+		$this->assertSame($firstDeletionDate->getTimestamp(), $secondDeletionDate->getTimestamp());
+		$this->assertSame($firstDeletionDate->getTimestamp(), (int)$this->userValues[$userId]['deletion']);
+	}
+
+	public function testFutureWithdrawalIsClampedToCurrentTime(): void {
+		$userId = '12004901000000000XXXXXXX';
+		$futureWithdrawal = (new \DateTimeImmutable())->add(new \DateInterval('P1D'));
+		$retention = new \DateInterval('P60D');
+
+		$before = new \DateTimeImmutable();
+		$deletionDate = $this->userService->markDeletion($userId, $futureWithdrawal);
+		$after = new \DateTimeImmutable();
 
 		$this->assertNotNull($deletionDate);
-		$this->assertGreaterThanOrEqual($before + 86400, $deletionDate->getTimestamp());
-		$this->assertLessThanOrEqual($after + 86401, $deletionDate->getTimestamp());
+
+		$storedWithdrawal = (int)$this->userValues[$userId]['withdrawal'];
+		$this->assertGreaterThanOrEqual($before->getTimestamp(), $storedWithdrawal);
+		$this->assertLessThanOrEqual($after->getTimestamp(), $storedWithdrawal);
+		$this->assertSame($storedWithdrawal, (int)$this->userValues[$userId]['last_account_change']);
+
+		$this->assertGreaterThanOrEqual($before->add($retention)->getTimestamp(), $deletionDate->getTimestamp());
+		$this->assertLessThanOrEqual($after->add($retention)->getTimestamp(), $deletionDate->getTimestamp());
+	}
+
+	public function testRecordAccountChangeTimeClampsFutureTimestamp(): void {
+		$userId = '12004901000000000XXXXXXX';
+		$futureChange = (new \DateTimeImmutable())->add(new \DateInterval('P1D'));
+
+		$before = new \DateTimeImmutable();
+		$result = $this->userService->recordAccountChangeTime($userId, $futureChange);
+		$after = new \DateTimeImmutable();
+
+		$this->assertTrue($result);
+		$stored = (int)$this->userValues[$userId]['last_account_change'];
+		$this->assertGreaterThanOrEqual($before->getTimestamp(), $stored);
+		$this->assertLessThanOrEqual($after->getTimestamp(), $stored);
 	}
 
 	public function testStaleWithdrawalIsRejected(): void {
 		$userId = '12004901000000000XXXXXXX';
 
-		$this->userValues[$userId]['last_account_change'] = (new \DateTimeImmutable('2030-08-04T00:00:00+00:00'))
+		$this->userValues[$userId]['last_account_change'] = (new \DateTimeImmutable('2025-08-04T00:00:00+00:00'))
 				->getTimestamp();
 
-		$result = $this->userService->markDeletion($userId, new \DateTimeImmutable('2030-08-03T00:00:00+00:00'));
+		$result = $this->userService->markDeletion($userId, new \DateTimeImmutable('2025-08-03T00:00:00+00:00'));
 
 		$this->assertNull($result);
 		$this->assertArrayNotHasKey('deletion', $this->userValues[$userId]);

@@ -136,7 +136,7 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertSame('Withdrawn', $event->getResult()->getReason());
 	}
 
-	public function testWithdrawalWithoutChangeTimeNeverSchedulesDeletion(): void {
+	public function testWithdrawalWithoutChangeTimePreservesExistingDeletion(): void {
 		$user = $this->existingUser(false);
 
 		$this->userService->method('userExists')
@@ -145,9 +145,8 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->userService->expects($this->never())
 			->method('markDeletion');
 
-		$this->userService->expects($this->once())
-			->method('unmarkDeletion')
-			->with(self::UID);
+		$this->userService->expects($this->never())
+			->method('unmarkDeletion');
 
 		$this->userService->expects($this->once())
 			->method('update')
@@ -165,7 +164,7 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->assertSame('Withdrawn without valid changeTime - deletion not scheduled', $event->getResult()->getReason());
 	}
 
-	public function testMissingBookingClaimNeverSchedulesDeletion(): void {
+	public function testMissingBookingClaimPreservesExistingDeletion(): void {
 		$user = $this->existingUser(false);
 
 		$this->userService->method('userExists')
@@ -174,9 +173,12 @@ class UserAccountChangeListenerTest extends TestCase {
 		$this->userService->expects($this->never())
 			->method('markDeletion');
 
+		$this->userService->expects($this->never())
+			->method('unmarkDeletion');
+
 		$this->userService->expects($this->once())
-			->method('unmarkDeletion')
-			->with(self::UID);
+			->method('update')
+			->with($user, 'jonny.gyros', 'jonny.gyros@ver.sul.t-online.de', '3 GB', false);
 
 		$event = $this->event(
 			$this->claims([
@@ -188,6 +190,39 @@ class UserAccountChangeListenerTest extends TestCase {
 
 		$this->assertFalse($event->getResult()->isAccessAllowed());
 		$this->assertSame('Missing tariff claim - deletion not scheduled', $event->getResult()->getReason());
+	}
+
+
+	public function testDeletionSchedulingFailurePreservesExistingDeletion(): void {
+		$user = $this->existingUser(false);
+
+		$this->userService->method('userExists')
+			->willReturn($user);
+		$this->userService->method('isStaleAccountChange')
+			->willReturn(false);
+
+		$this->userService->expects($this->once())
+			->method('markDeletion')
+			->willThrowException(new \RuntimeException('write failed'));
+
+		$this->userService->expects($this->never())
+			->method('unmarkDeletion');
+
+		$this->userService->expects($this->once())
+			->method('update')
+			->with($user, 'jonny.gyros', 'jonny.gyros@ver.sul.t-online.de', '3 GB', false);
+
+		$event = $this->event(
+			$this->claims([
+				'urn:telekom.com:f556' => '0',
+				'changeTime' => '2030-01-01T00:00:00Z',
+			])
+		);
+
+		$this->listener->handle($event);
+
+		$this->assertFalse($event->getResult()->isAccessAllowed());
+		$this->assertSame('Deletion scheduling failed safely', $event->getResult()->getReason());
 	}
 
 	public function testStaleWithdrawalIsIgnored(): void {
