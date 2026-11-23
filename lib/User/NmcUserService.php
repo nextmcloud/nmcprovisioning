@@ -291,9 +291,33 @@ class NmcUserService {
 	 * deletion candidate.
 	 */
 	public function unmarkDeletion(string $userId): void {
-		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_DELETION);
-		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL);
-		$this->config->deleteUserValue($userId, Application::APP_ID, 'deletion_marked_at');
+		$deletionDate = $this->getDeletionDateTime($userId);
+		$withdrawal = $this->getUserTimestamp($userId, self::KEY_WITHDRAWAL);
+
+		$this->config->deleteUserValue(
+			$userId,
+			Application::APP_ID,
+			self::KEY_DELETION
+		);
+		$this->config->deleteUserValue(
+			$userId,
+			Application::APP_ID,
+			self::KEY_WITHDRAWAL
+		);
+		$this->config->deleteUserValue(
+			$userId,
+			Application::APP_ID,
+			'deletion_marked_at'
+		);
+
+		if ($deletionDate !== null || $withdrawal !== null) {
+			$this->logger->info('Cancelled pending user deletion', [
+				'userId' => $userId,
+				'withdrawTime' => $withdrawal?->format(\DateTimeInterface::ATOM),
+				'previousDeletionDate' => $deletionDate?->format(\DateTimeInterface::ATOM),
+				'lastAccountChange' => $this->getLastAccountChangeTime($userId)?->format(\DateTimeInterface::ATOM),
+			]);
+		}
 	}
 
 	/**
