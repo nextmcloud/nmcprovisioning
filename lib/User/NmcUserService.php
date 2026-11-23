@@ -2,7 +2,6 @@
 
 namespace OCA\NextMagentaCloudProvisioning\User;
 
-use OC\Authentication\Token\IProvider;
 use OCA\NextMagentaCloudProvisioning\AppInfo\Application;
 use OCA\NextMagentaCloudProvisioning\Rules\GroupTariffMapping;
 use OCA\UserOIDC\Db\ProviderMapper;
@@ -15,10 +14,7 @@ use OCP\IConfig;
 use OCP\IGroupManager;
 use OCP\IUser;
 use OCP\IUserManager;
-use OCP\Security\ISecureRandom;
 use Psr\Log\LoggerInterface;
-
-// classes from user_oidc app
 
 class NmcUserService {
 	private const KEY_DELETION = 'deletion';
@@ -27,41 +23,22 @@ class NmcUserService {
 
 	private const DEFAULT_RETENTION = 'P60D';
 
-	/** @var IUserManager */
-	private $userManager;
-
-	/** @var IAccountManager */
-	private $accountManager;
-
-	/** @var LoggerInterface */
-	private $logger;
-
-	/** @var IConfig */
-	private $config;
-
-	/** @var UserMapper */
-	private $oidcUserMapper;
-
-	/** @var ProviderMapper */
-	private $oidcProviderMapper;
-
-	/** @var IProvider */
-	protected $tokenProvider;
-
-	/** @var ISecureRandom */
-	private $random;
-
+	private IUserManager $userManager;
+	private IAccountManager $accountManager;
+	private LoggerInterface $logger;
+	private IConfig $config;
+	private UserMapper $oidcUserMapper;
+	private ProviderMapper $oidcProviderMapper;
 	private GroupTariffMapping $groupTariffMapping;
-
 	private IGroupManager $groupManager;
 
-	public function __construct(IUserManager     $userManager,
-		IAccountManager  $accountManager,
-		LoggerInterface  $logger,
-		IConfig          $config,
-		UserMapper       $oidcUserMapper,
-		ProviderMapper   $oidcProviderMapper,
-		IGroupManager    $groupManager) {
+	public function __construct(IUserManager $userManager,
+		IAccountManager $accountManager,
+		LoggerInterface $logger,
+		IConfig $config,
+		UserMapper $oidcUserMapper,
+		ProviderMapper $oidcProviderMapper,
+		IGroupManager $groupManager) {
 		$this->groupTariffMapping = new GroupTariffMapping($config);
 		$this->userManager = $userManager;
 		$this->accountManager = $accountManager;
@@ -73,60 +50,52 @@ class NmcUserService {
 	}
 
 	/**
-	 * Find OpenId connect provider id case-insensitive by name.
+	 * Find OpenID Connect provider ID case-insensitive by name.
 	 */
 	public function findProviderByIdentifier(string $provider) {
 		$providers = $this->oidcProviderMapper->getProviders();
 		foreach ($providers as $p) {
-			if ((strcasecmp($p->getIdentifier(), $provider) == 0) ||
-				(strcmp($p->id, $provider) == 0)) {
+			if (strcasecmp($p->getIdentifier(), $provider) === 0 ||
+				strcmp($p->id, $provider) === 0) {
 				return $p->id;
 			}
 		}
 
-		throw new NotFoundException("No oidc provider " . $provider);
+		throw new NotFoundException('No oidc provider ' . $provider);
 	}
 
 	/**
-	 * Imitate zhe userID computation from oidc app
-	 * id4me is not used/supported yet.
+	 * Compute the user ID in the same way as the OIDC integration.
 	 */
-	protected function computeUserId(string $providerId, string $username, bool $id4me = false) {
-		// old way with hashed names only:
-		//if ($id4me) {
-		//	return hash('sha256', $providerId . '_1_' . $username);
-		//} else {
-		//	return hash('sha256', $providerId . '_0_' . $username);
-		//}
+	protected function computeUserId(string $providerId, string $username, bool $id4me = false): string {
 		if (strlen($username) > 64) {
 			return hash('sha256', $username);
-		} else {
-			return $username;
 		}
+
+		return $username;
 	}
 
 	/**
-	 * Find openid user entries based on username in id system or
-	 * by the generic hash id used by NextCloud user_oidc
-	 * with priority to the username in OpenID system.
-	 * @return user object from manager
+	 * Find OpenID user based on the username in the identity system.
 	 */
 	public function findUser(string $provider, string $username): IUser {
 		$providerId = $this->findProviderByIdentifier($provider);
 		$oidcUserId = $this->computeUserId($providerId, $username);
 		$user = $this->userManager->get($oidcUserId);
+
 		if ($user === null) {
 			$user = $this->userManager->get($username);
 		}
+
 		if ($user === null) {
-			throw new NotFoundException("No user " . $username . ", id=" . $oidcUserId);
+			throw new NotFoundException('No user ' . $username . ', id=' . $oidcUserId);
 		}
 
 		return $user;
 	}
 
 	/**
-	 * Check for OpenId user existence
+	 * Check for OpenID user existence.
 	 */
 	public function userExists(string $provider, string $username, bool $returnUser = false) {
 		try {
@@ -137,45 +106,39 @@ class NmcUserService {
 			}
 
 			return true;
-		} catch (NotFoundException $eNotFound) {
+		} catch (NotFoundException) {
 			return $returnUser ? null : false;
 		}
 	}
 
-	/**
-	 *  Set migration flag to user settings $user->getUID()
-	 */
-	public function setMigrationFlag($userId, bool $flag) {
-		$this->config->setUserValue($userId, "nmcuser_oidc", 'migrated', $flag ? 1 : 0);
+	public function setMigrationFlag(string $userId, bool $flag): void {
+		$this->config->setUserValue($userId, 'nmcuser_oidc', 'migrated', $flag ? 1 : 0);
+	}
+
+	public function getMigrationFlag(string $userId): bool {
+		return (int)$this->config->getUserValue($userId, 'nmcuser_oidc', 'migrated', 0) === 1;
 	}
 
 	/**
-	 *  get migration flag to user settings
-	 */
-	public function getMigrationFlag($userId) {
-		return $this->config->getUserValue($userId, "nmcuser_oidc", 'migrated', 0) == 1 ? true : false;
-	}
-
-	/**
-	 * Return the newest account-state change timestamp accepted for this user.
+	 * Return the newest accepted account-state change timestamp.
 	 *
-	 * This timestamp is deliberately kept when a deletion is cancelled. It is
-	 * used to reject delayed/out-of-order withdrawal events later on.
+	 * This value deliberately remains after a pending deletion is cancelled,
+	 * allowing delayed or out-of-order withdrawal events to be rejected.
 	 */
 	public function getLastAccountChangeTime(string $userId): ?\DateTimeImmutable {
 		return $this->getUserTimestamp($userId, self::KEY_LAST_ACCOUNT_CHANGE);
 	}
 
 	/**
-	 * Record an account-state change without allowing an older timestamp to
-	 * replace a newer one.
+	 * Record an account-state change without allowing an older timestamp
+	 * to replace a newer one.
 	 */
 	public function recordAccountChangeTime(string $userId, \DateTimeInterface $changeTime): bool {
 		$incoming = \DateTimeImmutable::createFromInterface($changeTime);
 		$now = new \DateTimeImmutable();
 
 		if ($incoming > $now) {
-			$this->logger->warning('Clamping future account change time to current time', [
+			$this->logger->warning("Clamping future account change time to current time for user {$userId}", [
 				'userId' => $userId,
 				'changeTime' => $incoming->format(\DateTimeInterface::ATOM),
 				'now' => $now->format(\DateTimeInterface::ATOM),
@@ -206,13 +169,8 @@ class NmcUserService {
 	/**
 	 * Mark a user for delayed deletion.
 	 *
-	 * The deletion date is calculated from the later of the authoritative
-	 * withdrawal timestamp and the local observation time, plus the configured
-	 * retention period. This guarantees the full retention period even when an
-	 * old withdrawal event reaches this system late.
-	 *
-	 * Repeated delivery of the same withdrawal event is idempotent and keeps the
-	 * already scheduled deletion date.
+	 * Repeated delivery of the same withdrawal event is idempotent and keeps
+	 * the already scheduled deletion date.
 	 *
 	 * @return \DateTimeImmutable|null Null if the withdrawal event is stale.
 	 */
@@ -221,7 +179,7 @@ class NmcUserService {
 		$now = new \DateTimeImmutable();
 
 		if ($withdrawal > $now) {
-			$this->logger->warning('Clamping future withdrawal time to current time', [
+			$this->logger->warning("Clamping future withdrawal time to current time for user {$userId}", [
 				'userId' => $userId,
 				'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
 				'now' => $now->format(\DateTimeInterface::ATOM),
@@ -230,7 +188,7 @@ class NmcUserService {
 		}
 
 		if ($this->isStaleAccountChange($userId, $withdrawal)) {
-			$this->logger->warning('Refusing stale withdrawal event', [
+			$this->logger->warning("Refusing stale withdrawal event for user {$userId}", [
 				'userId' => $userId,
 				'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
 				'lastAccountChange' => $this->getLastAccountChangeTime($userId)?->format(\DateTimeInterface::ATOM),
@@ -241,44 +199,32 @@ class NmcUserService {
 		$existingWithdrawal = $this->getUserTimestamp($userId, self::KEY_WITHDRAWAL);
 		$existingDeletion = $this->getDeletionDateTime($userId);
 
-		if (
-			$existingWithdrawal !== null
-			&& $existingDeletion !== null
-			&& $existingWithdrawal->getTimestamp() === $withdrawal->getTimestamp()
-		) {
+		if ($existingWithdrawal !== null &&
+			$existingDeletion !== null &&
+			$existingWithdrawal->getTimestamp() === $withdrawal->getTimestamp()) {
 			return $existingDeletion;
 		}
 
 		$retention = $this->getConfiguredInterval('userretention', self::DEFAULT_RETENTION);
-		$deletionBase = $withdrawal > $now ? $withdrawal : $now;
-		$deletionDate = $deletionBase->add($retention);
+		$deletionDate = $now->add($retention);
 
 		if (!$this->recordAccountChangeTime($userId, $withdrawal)) {
-			$this->logger->warning('Withdrawal became stale before it could be stored', [
+			$this->logger->warning("Withdrawal for user {$userId} became stale before it could be stored", [
 				'userId' => $userId,
 				'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
 			]);
 			return null;
 		}
 
-		$this->logger->info('Marking user for delayed deletion', [
+		$this->logger->info("Marking user {$userId} for delayed deletion", [
 			'userId' => $userId,
 			'withdrawTime' => $withdrawal->format(\DateTimeInterface::ATOM),
 			'deletionDate' => $deletionDate->format(\DateTimeInterface::ATOM),
-			'retention' => $this->config->getAppValue('nmcprovisioning', 'userretention', self::DEFAULT_RETENTION),
+			'retention' => $this->config->getAppValue(Application::APP_ID, 'userretention', self::DEFAULT_RETENTION),
 		]);
 
-		/*
-		 * Write the destructive marker before the supporting withdrawal metadata.
-		 * If the second write fails, last_account_change lets the deletion job
-		 * distinguish this incomplete new state from a legacy pre-PR marker and
-		 * fail safely.
-		 */
 		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_DELETION, $deletionDate->getTimestamp());
 		$this->config->setUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL, $withdrawal->getTimestamp());
-
-		// Clean up metadata written by earlier revisions of this hardening PR.
-		$this->config->deleteUserValue($userId, Application::APP_ID, 'deletion_marked_at');
 
 		return $deletionDate;
 	}
@@ -286,32 +232,17 @@ class NmcUserService {
 	/**
 	 * Cancel a pending deletion.
 	 *
-	 * The actual deletion marker is removed first. This makes an interrupted
-	 * cleanup fail safe: the background job no longer sees the user as a
-	 * deletion candidate.
+	 * last_account_change deliberately remains stored.
 	 */
 	public function unmarkDeletion(string $userId): void {
 		$deletionDate = $this->getDeletionDateTime($userId);
 		$withdrawal = $this->getUserTimestamp($userId, self::KEY_WITHDRAWAL);
 
-		$this->config->deleteUserValue(
-			$userId,
-			Application::APP_ID,
-			self::KEY_DELETION
-		);
-		$this->config->deleteUserValue(
-			$userId,
-			Application::APP_ID,
-			self::KEY_WITHDRAWAL
-		);
-		$this->config->deleteUserValue(
-			$userId,
-			Application::APP_ID,
-			'deletion_marked_at'
-		);
+		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_DELETION);
+		$this->config->deleteUserValue($userId, Application::APP_ID, self::KEY_WITHDRAWAL);
 
 		if ($deletionDate !== null || $withdrawal !== null) {
-			$this->logger->info('Cancelled pending user deletion', [
+			$this->logger->info("Cancelled pending deletion for user {$userId}", [
 				'userId' => $userId,
 				'withdrawTime' => $withdrawal?->format(\DateTimeInterface::ATOM),
 				'previousDeletionDate' => $deletionDate?->format(\DateTimeInterface::ATOM),
@@ -320,9 +251,6 @@ class NmcUserService {
 		}
 	}
 
-	/**
-	 * Get planned deletion date, or null if none.
-	 */
 	public function getDeletionDateTime(string $userId): ?\DateTimeImmutable {
 		return $this->getUserTimestamp($userId, self::KEY_DELETION);
 	}
@@ -343,32 +271,31 @@ class NmcUserService {
 	}
 
 	private function getConfiguredInterval(string $key, string $default): \DateInterval {
-		$value = $this->config->getAppValue('nmcprovisioning', $key, $default);
+		$value = $this->config->getAppValue(Application::APP_ID, $key, $default);
 
 		try {
 			return new \DateInterval($value);
 		} catch (\Throwable $e) {
-			throw new \RuntimeException("Invalid nmcprovisioning configuration {$key}={$value}", 0, $e);
+			throw new \RuntimeException("Invalid " . Application::APP_ID . " configuration {$key}={$value}", 0, $e);
 		}
 	}
 
 	/**
-	 * Get openid user data based on username in id system or
-	 * by the generic hash id used by NextCloud user_oidc
-	 * with priority to the username in OpenID system.
+	 * Get OpenID user data.
 	 */
 	public function find(string $provider, string $username) {
 		try {
 			$user = $this->findUser($provider, $username);
 			$userAccount = $this->accountManager->getAccount($user);
+
 			return [
 				'id' => $user->getUID(),
 				'displayname' => $user->getDisplayName(),
 				'email' => $user->getEmailAddress(),
-				'altemail' => $userAccount->getProperty(IAccountManager::PROPERTY_ADDRESS)->getValue(), // tmp location only
+				'altemail' => $userAccount->getProperty(IAccountManager::PROPERTY_ADDRESS)->getValue(),
 				'quota' => $user->getQuota(),
 				'enabled' => $user->isEnabled(),
-				'migrated' => $this->getMigrationFlag($user->getUID())
+				'migrated' => $this->getMigrationFlag($user->getUID()),
 			];
 		} catch (DoesNotExistException|MultipleObjectsReturnedException $eNotFound) {
 			throw new NotFoundException($eNotFound->getMessage());
@@ -376,114 +303,98 @@ class NmcUserService {
 	}
 
 	/**
-	 * This method only delivers ids/usernames of OpenID connect users
+	 * Return IDs/usernames of OpenID Connect users.
 	 */
-	public function findAll(string $provider, string $pattern = null, ?int $limit = null, ?int $offset = null) {
-		$providerId = $this->findProviderByIdentifier($provider); // check provider although it is not further used later
-		//$users = $this->oidcUserMapper->find("", $limit, $offset);
+	public function findAll(string $provider, ?string $pattern = null, ?int $limit = null, ?int $offset = null) {
+		$this->findProviderByIdentifier($provider);
+		$users = $this->userManager->search($pattern ?? '', $limit, $offset);
 
-		if ($pattern === null) {
-			$users = $this->userManager->search("", $limit, $offset);
-		} else {
-			$users = $this->userManager->search($pattern, $limit, $offset);
-		}
-
-		return array_keys(array_filter($users, function ($user) {
-			return ((strlen($user) == 24) && is_numeric($user)) ? true : false;
+		return array_keys(array_filter($users, static function ($user): bool {
+			return strlen($user) === 24 && is_numeric($user);
 		}, ARRAY_FILTER_USE_KEY));
 	}
 
-	/**
-	 * Encapsulation
-	 */
 	protected function createOidcUser(string $providerId, string $username, string $displayname) {
-		// old way with hashed names only:
-		// return $this->oidcUserMapper->getOrCreate($providerId, $username);
 		$userId = $this->computeUserId($providerId, $username);
 		$user = new User();
 		$user->setUserId($userId);
-		$this->logger->debug("PROV displayname");
 		$user->setDisplayName($displayname);
+
 		return $this->oidcUserMapper->insert($user);
 	}
 
-	protected function createAccountUser(IUser $user, $email, string $quota, bool $enabled) {
-		/*if ($altemail !== null) {
-			  $this->logger->debug("PROV altemail");
-			  $userAccount = $this->accountManager->getAccount($user);
-			  $userAccount->setProperty(IAccountManager::PROPERTY_ADDRESS, $altemail,
-				  IAccountManager::SCOPE_PRIVATE, IAccountManager::VERIFIED);
-			  $this->accountManager->updateAccount($userAccount);
-		  }*/
+	protected function createAccountUser(IUser $user, ?string $email, string $quota, bool $enabled): void {
+		$userId = $user->getUID();
 
 		if ($email !== null) {
-			$this->logger->debug("PROV email");
+			$this->logger->debug("PROV email for user {$userId}");
 			$user->setEMailAddress($email);
 		}
 
-		$this->logger->debug("PROV quota");
+		$this->logger->debug("PROV quota for user {$userId}");
 		$user->setQuota($quota);
 		$this->autoGroupMatch($user, $quota);
-		$this->logger->debug("PROV enable");
+
+		$this->logger->debug("PROV enable state for user {$userId}");
 		$user->setEnabled($enabled);
-		/*$this->logger->debug("PROV migration flag");
-		$this->setMigrationFlag($user->getUID(), $migrated);*/
 	}
 
-
-	/**
-	 * Create a compliant user for
-	 */
 	public function create(string $provider,
 		string $username,
 		string $displayname,
-		$email = null,
-		string $quota = "3 GB",
-		bool   $enabled = true) {
+		?string $email = null,
+		string $quota = '3 GB',
+		bool $enabled = true) {
 		$providerId = $this->findProviderByIdentifier($provider);
-		/*if ($this->userExists($providerId, $username)) {
-			throw new UserExistException("OpenID user " . $provider . ":" . $username . " already exists!");
-		}*/
 
-		//Create oidc user
-		$this->logger->debug("PROV create db user");
+		$this->logger->debug("PROV create db user {$username}");
 		$oidcUser = $this->createOidcUser($providerId, $username, $displayname);
 
-		//Create account user
-		$this->logger->debug("PROV standard account");
-		$user = $this->userManager->get($oidcUser->getUserId());
-		$this->logger->info("UserID: ".$oidcUser->getUserId());
+		$userId = $oidcUser->getUserId();
+
+		$this->logger->debug("PROV create standard account for user {$userId}");
+		$user = $this->userManager->get($userId);
+
+		$this->logger->info("Created/provisioning user {$userId}", [
+			'userId' => $userId,
+		]);
+
 		$this->createAccountUser($user, $email, $quota, $enabled);
 
 		return [
-			'id' => $oidcUser->getUserId()
+			'id' => $userId,
 		];
 	}
 
-	protected function updateUserSettings(IUser $user, string|null $email, string|null $quota, bool $enabled) {
+	protected function updateUserSettings(IUser $user, ?string $email, ?string $quota, ?bool $enabled): void {
+		$userId = $user->getUID();
+
 		if (!empty($email) &&
-			strtolower($email) !== strtolower($user->getEMailAddress())) {
-			$this->logger->debug("PROV email {$user->getUID()} old: {$user->getEMailAddress()} new: {$email}");
+			strtolower($email) !== strtolower((string)$user->getEMailAddress())) {
+			$this->logger->debug("PROV email {$userId} old: {$user->getEMailAddress()} new: {$email}");
 			$user->setEMailAddress($email);
 		}
 
-		//Its enough to check the string value from quota, the group mapping is matching with exact quota string
-		if (!is_null($quota) && $quota !== $user->getQuota()) {
-			$this->logger->debug("PROV quota {$user->getUID()} old: {$user->getQuota()} new: {$quota}");
+		if ($quota !== null && $quota !== $user->getQuota()) {
+			$this->logger->debug("PROV quota {$userId} old: {$user->getQuota()} new: {$quota}");
 			$user->setQuota($quota);
 			$this->autoGroupMatch($user, $quota);
 		}
 
-		if ($enabled !== $user->isEnabled()) {
+		if ($enabled !== null && $enabled !== $user->isEnabled()) {
+			$this->logger->debug(
+				"PROV enabled {$userId} old: " . ($user->isEnabled() ? 'true' : 'false') .
+				' new: ' . ($enabled ? 'true' : 'false')
+			);
 			$user->setEnabled($enabled);
 		}
 	}
 
-	protected function updateOidcUser(User $oidcUser, string|null $displayname) {
-		//Check is displayname changed
-		if (!is_null($displayname) &&
-			$displayname !== $oidcUser->getDisplayName()) {
-			$this->logger->debug("PROV displayname {$oidcUser->getUserId()} old: {$oidcUser->getDisplayName()} new: {$displayname}");
+	protected function updateOidcUser(User $oidcUser, ?string $displayname): void {
+		if ($displayname !== null && $displayname !== $oidcUser->getDisplayName()) {
+			$this->logger->debug(
+				"PROV displayname {$oidcUser->getUserId()} old: {$oidcUser->getDisplayName()} new: {$displayname}"
+			);
 			$oidcUser->setDisplayName($displayname);
 			$this->oidcUserMapper->update($oidcUser);
 		}
@@ -493,59 +404,51 @@ class NmcUserService {
 		$displayname = null,
 		$email = null,
 		$quota = null,
-		bool   $enabled = null) {
-		$this->logger->debug("PROV standard account");
-		$oidcUser = $this->oidcUserMapper->getUser($user->getUID());
-		//		$userAccount = $this->accountManager->getAccount($user);
+		?bool $enabled = null) {
+		$userId = $user->getUID();
 
-		/*		if ($altemail !== null) {
-					$this->logger->debug("PROV altemail");
-					$userAccount->setProperty(IAccountManager::PROPERTY_ADDRESS, $altemail,
-						IAccountManager::SCOPE_PRIVATE, IAccountManager::VERIFIED);
-					$this->accountManager->updateAccount($userAccount);
-				}*/
-
-		/*		if ($migrated !== null) {
-					$this->logger->debug("PROV migration flag");
-					$this->setMigrationFlag($user->getUID(), $migrated);
-				}*/
+		$this->logger->debug("PROV standard account for user {$userId}");
+		$oidcUser = $this->oidcUserMapper->getUser($userId);
 
 		$this->updateOidcUser($oidcUser, $displayname);
-
 		$this->updateUserSettings($user, $email, $quota, $enabled);
 
-		$this->logger->debug("PROV read state");
+		$this->logger->debug("PROV read state for user {$userId}");
+
 		$userState = [
-			'id' => $user->getUID(),
+			'id' => $userId,
 			'displayname' => $user->getDisplayName(),
 			'email' => $user->getEmailAddress(),
 			'quota' => $user->getQuota(),
 			'enabled' => $user->isEnabled(),
-			'migrated' => $this->getMigrationFlag($user->getUID()),
+			'migrated' => $this->getMigrationFlag($userId),
 		];
-		$deletionDate = $this->getDeletionDateTime($user->getUID());
-		if (!is_null($deletionDate)) {
+
+		$deletionDate = $this->getDeletionDateTime($userId);
+		if ($deletionDate !== null) {
 			$userState['deletion'] = $deletionDate->format(\DateTimeInterface::ISO8601);
 		}
+
 		return $userState;
 	}
 
-	private function autoGroupMatch($user, $quota) {
+	private function autoGroupMatch(IUser $user, string $quota): void {
 		$this->resetUserGroups($user);
+
 		foreach ($this->groupTariffMapping->getGroupMapping() as $group) {
 			if ($group['space_limit'] === $quota) {
-				$group = $this->groupManager->get($group['name']);
-				$group?->addUser($user);
+				$matchedGroup = $this->groupManager->get($group['name']);
+				$matchedGroup?->addUser($user);
 			}
 		}
 	}
 
-	private function resetUserGroups($user) {
+	private function resetUserGroups(IUser $user): void {
 		foreach ($this->groupManager->getUserGroups($user) as $group) {
 			foreach ($this->groupTariffMapping->getGroupMapping() as $mapping) {
 				if ($mapping['name'] === $group->getGID()) {
-					$group = $this->groupManager->get($group->getGID());
-					$group?->removeUser($user);
+					$matchedGroup = $this->groupManager->get($group->getGID());
+					$matchedGroup?->removeUser($user);
 				}
 			}
 		}
