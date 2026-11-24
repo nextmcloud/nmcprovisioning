@@ -1,48 +1,103 @@
 # NextMagentaCloud provisioning functions
 
+The `nmcprovisioning` app contains MagentaCLOUD-specific business logic for user provisioning based on Telekom/OIDC account information.
+
+Main responsibilities:
+
+- evaluate account and tariff claims
+- determine quota and tariff group
+- create and update Nextcloud users
+- update display name, email, quota and enabled state
+- manage tariff group assignments
+- handle withdrawn, locked and reactivated accounts
+- redirect users to the appropriate booking/preserve flow
+- migrate existing users to provisioning groups
+- schedule and execute delayed user deletion
+
 ## App configuration
 
 |App parameter                        | Purpose                                                                               |
 |-------------------------------------|---------------------------------------------------------------------------------------|
-|nmcprovisioning userpreserveurl      | url to redirect user on "Telekom erhalten" process account                            |
-|nmcprovisioning userwithdrawurl      | url to redirect user on general withdrawn account                                     |
-|nmcprovisioning userotturl           | url to redirect OTT user directly into "Free" booking                                 |
-|nmcprovisioning useraccessurl        | url to redirect Access user directly into "Magenta S" booking                         |
-|nmcprovisioning userretention        | (optional override, TimeInterval) retention time !=60 days default (e.g. for test)    |
-|[invalidated]   deletionjobtime      | (optional override, Time) Earliest time when daily deletion job should run (04:00Z)   | 
+| `nmcprovisioning userpreserveurl`   | Redirect for "Telekom erhalten" / preserve-account flow                               |
+| `nmcprovisioning userwithdrawurl`   | Redirect for generally withdrawn accounts                                             |
+| `nmcprovisioning userotturl`        | Redirect OTT users into "Free" booking                                                |
+| `nmcprovisioning useraccessurl`     | Redirect Access users into "Magenta S" booking                                        |
+| `nmcprovisioning userretention`     | Optional ISO 8601 deletion retention override, default `P60D`                         |
 
-Remember that NextCloud app configuration values only support string, so 300sec is '300'.
+Configuration is done using `occ`:
 
-The configuration could be done with the following commandline calls (only, no UI):
-```
-sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userpreserveurl --value 'https://telekom.example.com/'
-sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userwithdrawurl --value "https://cloud.telekom-dienste.de/tarife"
-sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userotturl --value 'https://telekom.example.com/'
-sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning useraccessurl --value "https://cloud.telekom-dienste.de/tarife"
-sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userretention --value "P60DT1H" <TimeInterval formatted P..T... value>
-// not implemented atm: sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning deletionjobtime --value "HH:MM:SSZ"
+```bash
+sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userpreserveurl --value="https://telekom.example.com/"
+sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userwithdrawurl --value="https://cloud.telekom-dienste.de/tarife"
+sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userotturl --value="https://telekom.example.com/"
+sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning useraccessurl --value="https://cloud.telekom-dienste.de/tarife"
+sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userretention --value="P60D"
 ```
 
-## Running app unit tests
-Before first run, prepare your app for unittesting by:
-```
-cd custom_apps/myapp
+For short integration tests the retention can for example be set to five minutes:
 
-# run once if needed
-composer install --no-dev -o
+```bash
+sudo -u www-data php /var/www/nextcloud/occ config:app:set nmcprovisioning userretention --value="PT5M"
 ```
 
-Execute unittests with the mandatory standard run before push:
-```
-phpunit --stderr --bootstrap tests/bootstrap.php tests/unit/MyTest.php
+Remove the override to use the default `P60D` again:
+
+```bash
+sudo -u www-data php /var/www/nextcloud/occ config:app:delete nmcprovisioning userretention
 ```
 
-For quicker development (only!), you could skip large/long running tests
-```
-phpunit --stderr --bootstrap tests/bootstrap.php --exclude-group=large tests/unit/MyTest.php
+## Account withdrawal and deletion
+
+Withdrawn users are disabled first and deleted only after the configured retention period.
+
+The app stores:
+
+- `withdrawal` – accepted withdrawal timestamp
+- `deletion` – planned deletion timestamp
+- `last_account_change` – newest accepted account-state change
+
+A reactivation removes the pending withdrawal/deletion state but keeps `last_account_change` to reject delayed older events.
+
+Withdrawals without a valid authoritative `changeTime` do not create or overwrite a deletion schedule.
+
+Repeated or stale events do not move an existing deletion date.
+
+## Provisioning groups
+
+Quota changes automatically update the user's MagentaCLOUD provisioning group.
+
+The app also provides commands to create and migrate provisioning groups:
+
+```bash
+sudo -u www-data php /var/www/nextcloud/occ app:generate_new_provisioning_groups
+sudo -u www-data php /var/www/nextcloud/occ app:migrate_provisioning_groups
 ```
 
-Or you could limit your call to some methods only:
+Provisioning groups are also integrated with the configured Collabora/richdocuments group permissions.
+
+## Running unit tests
+
+Install dependencies if required:
+
+```bash
+cd custom_apps/nmcprovisioning
+composer install
 ```
-phpunit --stderr --bootstrap tests/bootstrap.php --filter='testMethod1|testMethod2' tests/unit/MyTest.php
+
+Run the unit tests:
+
+```bash
+phpunit --stderr --bootstrap tests/bootstrap.php tests/unit
+```
+
+Run a specific test:
+
+```bash
+phpunit --stderr --bootstrap tests/bootstrap.php tests/unit/UserAccountDeletionJobTest.php
+```
+
+or filter individual methods:
+
+```bash
+phpunit --stderr --bootstrap tests/bootstrap.php --filter='testMethod1|testMethod2' tests/unit
 ```
